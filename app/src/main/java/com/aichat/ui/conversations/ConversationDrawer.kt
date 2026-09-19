@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,6 +80,13 @@ fun ConversationDrawer(
     onExportConversation: (String) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    /**
+     * 宽屏时常驻：不覆盖内容、去掉右端圆角、不响应关闭手势。
+     *
+     * 由 `ChatScaffold` 按当前宽度算好传进来 —— 这一层不去自己判断宽度，
+     * 否则「多宽算宽」会有两个地方各定义一遍。
+     */
+    permanent: Boolean = false,
 ) {
     // 待确认删除的那一条。删除会话是**不可撤销**的（里面的消息一起没）。
     // 确认框里写出会话标题：泛泛的「确定吗」在满屏都是会话的抽屉里没有意义。
@@ -153,6 +162,13 @@ fun ConversationDrawer(
         // 而是「换了一页」，失去「旁边还留着主界面」的感觉
         modifier = Modifier.width(300.dp),
         drawerContainerColor = MaterialTheme.colorScheme.surface,
+        // 常驻时去掉右端圆角。
+        //
+        // `PermanentDrawerSheet` 和 `ModalDrawerSheet` 的差别**只有这一处** ——
+        // 前者连 `drawerShape` 参数都没有，因为它就是个矩形。所以与其把下面
+        // 那一大段内容抽出去给两个 sheet 共用（140 行的缩进重排），
+        // 不如在同一个 sheet 上换形状。
+        drawerShape = if (permanent) RectangleShape else DrawerDefaults.shape,
     ) {
         Column(Modifier.fillMaxSize()) {
             DrawerHeader()

@@ -113,7 +113,11 @@ fun ChatScreen(
     conversationId: String,
     showBack: Boolean,
     onBack: () -> Unit,
-    onOpenDrawer: () -> Unit,
+    /**
+     * 拉开会话抽屉。**宽屏时是 null** —— 那时候侧边栏常驻，
+     * 顶栏再放一个汉堡，等于让人去拉一个已经摊开的东西。
+     */
+    onOpenDrawer: (() -> Unit)?,
     onOpenSettings: () -> Unit,
     /** 从搜索结果点进来时，要定位到的那条消息。普通打开会话是 null。 */
     highlightMessageId: Long? = null,
@@ -217,11 +221,19 @@ fun ChatScreen(
                     // 一个位置，两种含义：是首页就给汉堡（拉开侧边栏），
                     // 是从搜索页压上来的就给返回箭头。判据是返回栈深度，
                     // 由 MainNavigation 算好传进来 —— 这一层不去猜
-                    IconButton(onClick = if (showBack) onBack else onOpenDrawer) {
-                        Icon(
-                            imageVector = if (showBack) PbIcons.ArrowBack else PbIcons.Menu,
-                            contentDescription = if (showBack) "返回" else "会话列表",
-                        )
+                    //
+                    // 还有第三种情况：`onOpenDrawer` 为 null（宽屏，侧边栏常驻）。
+                    // 那时左侧**整个留空** —— 没有抽屉可拉，摆一个汉堡是骗人
+                    when {
+                        showBack ->
+                            IconButton(onClick = onBack) {
+                                Icon(PbIcons.ArrowBack, contentDescription = "返回")
+                            }
+
+                        onOpenDrawer != null ->
+                            IconButton(onClick = onOpenDrawer) {
+                                Icon(PbIcons.Menu, contentDescription = "会话列表")
+                            }
                     }
                 },
                 actions = {

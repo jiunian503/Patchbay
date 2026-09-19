@@ -8,8 +8,11 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
@@ -58,6 +62,7 @@ import kotlinx.coroutines.launch
  * 导出内容本身由 [ConversationListViewModel] 拼好（见 `ConversationExport.kt`），
  * 这一层只负责「弹保存框、把字节写进去」。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScaffold(
     container: AppContainer,
@@ -93,14 +98,27 @@ fun ChatScaffold(
         onDone = listViewModel::consumeExport,
     )
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
+    // 宽屏（≥840dp）时侧边栏**常驻**，窄屏时仍是覆盖式抽屉。
+    //
+    // 840dp 是 Material 3 窗口尺寸分类里 Expanded 的起点，也差不多是
+    // 「侧边栏 300dp + 正文 600dp」放得下的宽度。低于它常驻反而会挤掉正文：
+    // 竖屏 617dp 减掉 300dp 只剩 317dp，比手机还窄。
+    //
+    // 用 BoxWithConstraints 而不是 WindowSizeClass —— 这里只需要「当前多宽」
+    // 一个数，而 M3 的 material3-window-size-class 已废弃、官方指向
+    // material3-adaptive（多一个依赖）。真要做「列表-详情双栏」时再引。
+    BoxWithConstraints {
+        val permanentDrawer = maxWidth >= 840.dp
+
+        // 抽屉内容只写一遍：两条分支里它是同一个东西，复制出去迟早会漂
+        val drawer: @Composable () -> Unit = {
             ConversationDrawer(
                 items = listState.items,
                 loading = listState.loading,
                 currentConversationId = conversationId,
+                permanent = permanentDrawer,
                 onOpenConversation = { id ->
+                    // 常驻时没有「关抽屉」这回事，close() 是个无害的空操作
                     scope.launch { drawerState.close() }
                     // 点的是当前这个就什么都不做。不拦的话会 pop 再 push
                     // 同一个 key —— 对话页被重建，滚动位置和输入框里的草稿全没了
@@ -131,18 +149,37 @@ fun ChatScaffold(
                     onOpenSettings()
                 },
             )
-        },
-    ) {
-        ChatScreen(
-            container = container,
-            conversationId = conversationId,
-            showBack = showBack,
-            onBack = onBack,
-            onOpenDrawer = { scope.launch { drawerState.open() } },
-            onOpenSettings = onOpenSettings,
-            highlightMessageId = highlightMessageId,
-            highlightQuery = highlightQuery,
-        )
+        }
+
+        // 两条分支只差 `onOpenDrawer` 一个参数，所以把 ChatScreen 的调用也收进
+        // 一个 lambda —— 写两遍的话，以后每加一个参数都要记着改两处
+        val chatContent: @Composable (onOpenDrawer: (() -> Unit)?) -> Unit = { openDrawer ->
+            ChatScreen(
+                container = container,
+                conversationId = conversationId,
+                showBack = showBack,
+                onBack = onBack,
+                onOpenDrawer = openDrawer,
+                onOpenSettings = onOpenSettings,
+                highlightMessageId = highlightMessageId,
+                highlightQuery = highlightQuery,
+            )
+        }
+
+        if (permanentDrawer) {
+            // 侧边栏已经摊在旁边了，顶栏不该再给一个「拉开抽屉」的汉堡 ——
+            // 所以这里传 null
+            PermanentNavigationDrawer(drawerContent = drawer) {
+                chatContent(null)
+            }
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = drawer,
+            ) {
+                chatContent { scope.launch { drawerState.open() } }
+            }
+        }
     }
 }
 
