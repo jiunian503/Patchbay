@@ -1415,7 +1415,7 @@ private fun ToolApprovalDialog(
                 Spacer(Modifier.height(4.dp))
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     SelectionContainer {

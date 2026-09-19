@@ -389,7 +389,7 @@ private fun CodeBlockCard(block: MarkdownBlock.CodeBlock, highlightQuery: String
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Column {
@@ -539,7 +539,7 @@ private fun TableView(block: MarkdownBlock.Table, base: TextStyle, highlightQuer
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        shape = RoundedCornerShape(8.dp),
+        shape = MaterialTheme.shapes.small,
         color = Color.Transparent,
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
