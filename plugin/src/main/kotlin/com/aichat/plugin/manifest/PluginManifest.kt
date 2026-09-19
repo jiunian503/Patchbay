@@ -3,7 +3,9 @@ package com.aichat.plugin.manifest
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 插件清单 —— 所有集成的公共契约。
@@ -263,9 +265,55 @@ data class SettingSpec(
      * 插件该拿到的是「没有这个值」，而不是空字符串 —— 后者会被原样
      * 拼进 `Authorization: Bearer ` 里，报回来一个 401，
      * 而真正的原因是「用户没填」。
+     *
+     * 也正因为这条约定，**[default] 对敏感项不生效** —— 它的值只能由用户提供。
+     * 详见 [defaultText]。
      */
     val secret: Boolean = false,
-)
+) {
+    /**
+     * [default] 的文本形式，供配置层合并用。
+     *
+     * ## 为什么需要它
+     *
+     * `default` 是 [JsonElement]（schema 里可以是字符串、数字、布尔），
+     * 而下游拼 URL 用的 `PluginSettings` 是 `Map<String, String>` ——
+     * 中间必须有且只有**一次**转换，否则界面回显和运行时装配会各转一遍，
+     * 迟早转出两种结果。
+     *
+     * ## 只有基本类型能转
+     *
+     * - [JsonPrimitive] → `.content`。字符串、数字、布尔都能拿到文本
+     *   （`"celsius"` / `1` / `true`）
+     * - [JsonNull] → null。**注意 `JsonNull` 也是 `JsonPrimitive`** ——
+     *   不单独排除的话会拿到字符串 `"null"`，然后被当成一个真的值填进去
+     * - 对象 / 数组 → null。它们没有「一个字符串」的表示，硬转出来的是
+     *   `{"a":1}` 这种字面量，拼进 URL 只会换回一个莫名其妙的 400
+     * - 空白串 → null，与 `PluginSettings.value` 对空串的归一保持一致
+     *
+     * ## 敏感项返回 null
+     *
+     * [secret] 为 true 时直接返回 null，即使清单里写了 `default`。
+     * 理由：清单是**明文**，而且会从网址下载、会被粘贴、会被分享
+     * （安装页就支持从 URL 拉清单）。让凭据随清单分发会破坏
+     * 「值只由用户提供」这条约定，而且用户看不见 —— 敏感项本来就不回显，
+     * 他不会知道自己正在用一个作者下发的公共密钥。
+     *
+     * 想表达「不填也能跑」的话，正确的做法是把那个值做成一个**非敏感项**
+     * （例如 `mode: "demo"`），而不是把凭据写进默认值。
+     *
+     * 校验层对「敏感项声明了 default」会报一条 warning 说明它被忽略，
+     * 免得作者以为它生效了。
+     */
+    val defaultText: String?
+        get() {
+            if (secret) return null
+            return (default as? JsonPrimitive)
+                ?.takeIf { it !is JsonNull }
+                ?.content
+                ?.takeIf { it.isNotBlank() }
+        }
+}
 
 @Serializable
 enum class SettingType {

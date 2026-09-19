@@ -363,6 +363,49 @@ class ManifestParserTest {
         assertNotNull(parse(json).manifest)
     }
 
+    // ---------------------------------------------------------------- 配置项的默认值
+
+    @Test
+    fun `默认值不在 enum 取值里时报错`() {
+        assertRejected(
+            Manifests.declarative(
+                settings = """"u":{"type":"enum","title":"单位","enum":["celsius"],"default":"kelvin"}""",
+            ),
+            "用户永远选不到它",
+        )
+    }
+
+    @Test
+    fun `敏感项声明默认值时报警告而不是错误`() {
+        // 默认值会被忽略（见 `SettingSpec.defaultText`），但插件本身能跑 ——
+        // 所以是 warning。作者多半以为它生效了，不报的话他会看到
+        // 「明明配了默认值，插件还是说缺配置」而无从下手。
+        val json = Manifests.declarative(
+            settings = """"apiKey":{"type":"string","title":"密钥","secret":true,"default":"sk-shipped"}""",
+        )
+
+        val check = parse(json)
+
+        assertNotNull("这不是「一定不工作」，不该挡住安装", check.manifest)
+        assertTrue(check.errors.isEmpty().toString(), check.errors.isEmpty())
+        assertTrue(
+            check.warnings.toString(),
+            check.warnings.any { it.path == "$.settings.apiKey.default" && it.message.contains("会被忽略") },
+        )
+    }
+
+    @Test
+    fun `非敏感项的默认值不报任何问题`() {
+        val json = Manifests.declarative(
+            settings = """"u":{"type":"enum","title":"单位","enum":["celsius"],"default":"celsius"}""",
+        )
+
+        val check = parse(json)
+
+        assertNotNull(check.manifest)
+        assertTrue(check.problems.toString(), check.problems.isEmpty())
+    }
+
     // ---------------------------------------------------------------- 占位符
 
     @Test

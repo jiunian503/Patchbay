@@ -545,6 +545,22 @@ object ManifestParser {
                     "默认值 $default 不在 enum 取值 ${spec.enum} 里，用户永远选不到它。",
                 )
             }
+
+            // 敏感项的默认值会被忽略（见 `SettingSpec.defaultText`）。
+            // 报出来是因为作者写了它、多半以为它生效了 —— 静默忽略的话，
+            // 他会看到「明明配了默认值，插件还是说缺配置」而无从下手。
+            //
+            // 是 warning 而不是 error：这不是「一定不工作」，插件本身能跑，
+            // 只是作者以为的那条路被堵了。和「baseUrl 用了 http」同一个级别。
+            if (spec.secret && default != null) {
+                out += ManifestProblem(
+                    "$.settings.$key.default",
+                    "敏感项的默认值会被忽略 —— 清单是明文，而且会从网址下载、会被粘贴和分享，" +
+                        "凭据只能由用户自己填。想表达「不填也能跑」的话，把那个值做成一个非敏感项" +
+                        "（例如 mode: \"demo\"），而不是把凭据写进默认值。",
+                    severity = ManifestProblem.Severity.Warning,
+                )
+            }
         }
     }
 

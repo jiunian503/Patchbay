@@ -285,6 +285,128 @@ class PluginRepositoryTest {
         assertTrue(env.repo.settingsView("pub.test.demo").configuredSecrets.isEmpty())
     }
 
+    // ---------------------------------------------------------------- 默认值
+
+    /**
+     * 一份带默认值的清单：`unit` 声明了默认值，`apiKey` 是敏感项。
+     *
+     * [secretDefault] 为 true 时给敏感项也写一个默认值 —— 它**不该**被采用，
+     * 校验层会为此报一条警告（见 `ManifestParserTest`）。
+     * [default] 用来演「作者在新版本里改了默认值」。
+     */
+    private fun withDefault(
+        secretDefault: Boolean = false,
+        version: String = "1.0.0",
+        default: String = "celsius",
+    ): String {
+        val secretPart = if (secretDefault) ",\"default\":\"sk-shipped\"" else ""
+        return Manifests.declarative(
+            version = version,
+            settings = "\"apiKey\":{\"type\":\"string\",\"title\":\"密钥\",\"secret\":true$secretPart}," +
+                "\"unit\":{\"type\":\"enum\",\"title\":\"单位\"," +
+                "\"enum\":[\"celsius\",\"fahrenheit\"],\"default\":\"$default\"}",
+            extraEntry = ""","auth":{"type":"bearer","settingKey":"apiKey"}""",
+        )
+    }
+
+    @Test
+    fun `装配时并进清单声明的默认值`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+
+        assertEquals(
+            "不并的话 {{settings.unit}} 会解析成空串 —— 而界面上看不出任何异常",
+            "celsius",
+            env.repo.installed("pub.test.demo")!!.settings.value("unit"),
+        )
+    }
+
+    @Test
+    fun `用户存下来的值优先于默认值`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+        env.repo.saveSettings("pub.test.demo", PluginSettingsDraft(values = mapOf("unit" to "fahrenheit")))
+
+        assertEquals("fahrenheit", env.repo.installed("pub.test.demo")!!.settings.value("unit"))
+    }
+
+    @Test
+    fun `回显里也带着默认值`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+
+        assertEquals(
+            "界面显示的值必须就是实际会用到的值：各写一遍合并逻辑的话，" +
+                "会出现「界面上选中了、请求里是空的」，而用户没法自己看出来",
+            "celsius",
+            env.repo.settingsView("pub.test.demo").values["unit"],
+        )
+    }
+
+    @Test
+    fun `清空一个非敏感项等于回到默认值`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+        env.repo.saveSettings("pub.test.demo", PluginSettingsDraft(values = mapOf("unit" to "fahrenheit")))
+
+        // 空值不落库（saveSettings 里的 filterValues），于是这一项回到「没有值」
+        env.repo.saveSettings("pub.test.demo", PluginSettingsDraft(values = mapOf("unit" to "")))
+
+        assertNull(env.dao.rows.getValue("pub.test.demo").settingsJson)
+        assertEquals("celsius", env.repo.installed("pub.test.demo")!!.settings.value("unit"))
+    }
+
+    @Test
+    fun `敏感项的默认值不参与`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault(secretDefault = true))
+
+        val plugin = env.repo.installed("pub.test.demo")!!
+
+        assertNull(
+            "清单是明文，而且会从网址下载、会被粘贴和分享 —— 凭据只能由用户自己填",
+            plugin.settings.value("apiKey"),
+        )
+        assertTrue(
+            "回显里也不能冒出清单里的那个默认凭据",
+            "apiKey" !in env.repo.settingsView("pub.test.demo").values,
+        )
+    }
+
+    @Test
+    fun `保存过之后就不再跟着默认值走`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+        // 用户顺手点了「保存设置」—— 存下的就是他当时看到的那个值
+        env.repo.saveSettings("pub.test.demo", PluginSettingsDraft(values = mapOf("unit" to "celsius")))
+
+        // 作者在新版本里把默认值改成了华氏
+        env.now = 2_000L
+        env.repo.install(withDefault(version = "2.0.0", default = "fahrenheit"))
+
+        assertEquals(
+            "保存过的值属于用户 —— 作者改默认值不该把它顶掉",
+            "celsius",
+            env.repo.installed("pub.test.demo")!!.settings.value("unit"),
+        )
+    }
+
+    @Test
+    fun `没保存过就一直跟着默认值走`() = runTest {
+        val env = Env()
+        env.repo.install(withDefault())
+
+        env.now = 2_000L
+        env.repo.install(withDefault(version = "2.0.0", default = "fahrenheit"))
+
+        assertEquals(
+            "用户没动过这一项，作者改默认值他就该跟着变 —— " +
+                "所以「保存」这个动作必须真的有含义，不能在写入时把值悄悄裁掉",
+            "fahrenheit",
+            env.repo.installed("pub.test.demo")!!.settings.value("unit"),
+        )
+    }
+
     // ---------------------------------------------------------------- 升级
 
     @Test

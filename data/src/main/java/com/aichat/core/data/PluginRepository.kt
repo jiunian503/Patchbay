@@ -353,7 +353,13 @@ class PluginRepository(
 
     // ------------------------------------------------------------------ 配置
 
-    /** 表单回显。敏感项只回报「填过没有」，**不回报值**。 */
+    /**
+     * 表单回显。敏感项只回报「填过没有」，**不回报值**。
+     *
+     * 返回的 [PluginSettingsView.values] 里**已经并进了清单声明的默认值**
+     * （非敏感项）。所以用户新装一个插件、什么都没填时，表单上显示的就是
+     * 实际会用到的值 —— 而不是一片空白。见 [mergeDefaults]。
+     */
     suspend fun settingsView(id: String): PluginSettingsView {
         val entity = dao.get(id) ?: return PluginSettingsView(emptyMap(), emptySet())
         val manifest = ManifestParser.parse(entity.manifestJson).manifest
@@ -365,7 +371,9 @@ class PluginRepository(
             .filterTo(mutableSetOf()) { secrets.contains(secretAlias(id, it)) }
 
         return PluginSettingsView(
-            values = decodeSettings(entity.settingsJson),
+            // 走和装配**同一个**合并函数：界面显示的值必须就是实际会用到的值。
+            // 各写一遍的话，会出现「界面上选中了、请求里是空的」（见 mergeDefaults）
+            values = mergeDefaults(decodeSettings(entity.settingsJson), manifest),
             configuredSecrets = secretsFilled,
         )
     }
@@ -414,13 +422,74 @@ class PluginRepository(
     // ------------------------------------------------------------------ 内部
 
     private suspend fun settingsFor(entity: PluginEntity, manifest: PluginManifest): PluginSettings {
-        val values = LinkedHashMap(decodeSettings(entity.settingsJson))
+        val values = LinkedHashMap(mergeDefaults(decodeSettings(entity.settingsJson), manifest))
         for ((key, spec) in manifest.settings) {
             if (!spec.secret) continue
             secrets.get(secretAlias(entity.id, key))?.takeIf { it.isNotBlank() }
                 ?.let { values[key] = it }
         }
         return PluginSettings(values)
+    }
+
+    /**
+     * 把清单声明的默认值并进用户存下来的值。
+     *
+     * ## 为什么这一层必须有
+     *
+     * `SettingSpec.default` 在这之前**没有任何一层消费它** ——
+     * `ManifestParser` 只校验「默认值和声明的类型是否匹配」，然后丢掉。
+     * 结果是：一个声明了 `"default":"celsius"` 的枚举项，新装插件时
+     * 界面上一个选项都不选中；用户不点就保存的话，`{{settings.unit}}`
+     * 会解析成空串。
+     *
+     * 这个 bug 在示例插件上被掩盖了：open-meteo 把「没给 temperature_unit」
+     * 当成摄氏，正好和默认值一致。换个后端就会真的出错，而且是静默出错。
+     *
+     * ## 为什么合并只能发生在一处
+     *
+     * [settingsFor]（运行时装配）和 [settingsView]（界面回显）**都必须走这个函数**。
+     * 各写一遍的话，迟早出现「界面上显示的值」和「实际发出去的值」不一样 ——
+     * 而那种 bug 用户自己根本没法看出来：他看到一个选中了的选项，而请求里是空的。
+     *
+     * 顺带一个好处：回显直接显示默认值，用户不必先点一遍再保存才让它生效。
+     *
+     * ## 边界：**保存过没有**
+     *
+     * - 用户没动过这一项 → 库里没有这个键 → 一直跟着清单的默认值走。
+     *   作者改默认值时，他会跟着变。
+     * - 用户保存过（哪怕只是顺手点了「保存设置」）→ 库里记下了他当时看到的
+     *   那个值 → 从此固定，作者再改默认值也不影响他。
+     *
+     * 这是**故意**的，不是副作用：它让「保存」这个动作有确定含义 ——
+     * 保存之前你在作者的默认值上，保存之后你在自己记下的值上。
+     *
+     * ## 为什么不在写入时把「和默认值相同」的值丢掉
+     *
+     * 那样能让默认值一直「活」，看起来更聪明，但会引入一个没法推理的不一致：
+     * **默认值本身会随插件升级变化**，而写入时的默认值和读取时的默认值可能不是
+     * 同一个。比如作者 v1 默认 `celsius`、用户保存了 `celsius`（被丢掉，库里空）、
+     * v2 把默认改成 `fahrenheit` —— 用户的那个 `celsius` 就凭空消失了。
+     * 写入层如实存、读取层负责补，两边的职责才分得干净。
+     *
+     * ## 存下来的值优先
+     *
+     * 只在「没有值」时才落默认值。空白串也当没有值 —— 和
+     * `PluginSettings.value` 的归一、以及 [saveSettings] 里那句
+     * `filterValues { it.isNotBlank() }` 是同一套判断。
+     * 于是「用户清空一个非敏感项 = 回到默认值」不需要额外规则。
+     *
+     * 敏感项不参与：[SettingSpec.defaultText] 对 `secret = true` 直接返回 null。
+     */
+    private fun mergeDefaults(
+        stored: Map<String, String>,
+        manifest: PluginManifest,
+    ): Map<String, String> {
+        val merged = LinkedHashMap(stored)
+        for ((key, spec) in manifest.settings) {
+            if (merged[key]?.isNotBlank() == true) continue
+            spec.defaultText?.let { merged[key] = it }
+        }
+        return merged
     }
 
     /** 删掉新清单里已经不存在的非敏感项。null 表示没有可保留的。 */
