@@ -24,12 +24,35 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:windowSoftInputMode="adjustResize"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.Patchbay">
+        <!--
+          windowSoftInputMode 在 activity 上，不在 application 上。
+
+          这个属性只属于 AndroidManifestActivity —— SDK 的 attrs_manifest.xml 里
+          `windowSoftInputMode` 只出现在那个 styleable 下（android-36 的行 3366）。
+          写在 application 上 **aapt2 不报错**，还会原样进合并后的清单，但运行时
+          没有任何人读它：ActivityInfo.softInputMode 只在解析 activity 时赋值。
+
+          为什么需要它：Compose 的 imePadding() 在 API 30+ 走平台精确的 IME insets，
+          和它无关；但在 **API 29 及以下**，AndroidX 只能这样近似
+          （WindowInsetsCompat 里 Impl20.getInsetsForType 的 Type.IME 分支）：
+
+              if (systemWindow.bottom > rootStable.bottom) {
+                  // This handles the adjustResize case on < API 30, since
+                  // systemWindow.bottom is probably going to be the IME
+                  return Insets.of(0, 0, 0, systemWindow.bottom);
+              }
+
+          也就是「IME 高度 = 窗口被 resize 出来的那块底部 inset」。不声明的话
+          softInputMode 是 ADJUST_UNSPECIFIED，resize 还是 pan 由系统挑；挑不到
+          resize 这一支，imePadding() 就拿到 0，键盘会盖住输入框。
+          minSdk 是 28，所以这不是理论问题。
+        -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
