@@ -18,7 +18,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,7 +36,7 @@ import com.aichat.theme.Space
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbHintCard
 import com.aichat.ui.common.PbIcons
-import com.aichat.ui.common.PbTopBar
+import com.aichat.ui.common.PbScaffold
 
 /**
  * 插件列表。
@@ -84,9 +83,9 @@ fun PluginListScreen(
     // 从安装页/详情页返回时重新读一次：那边可能刚装完或刚卸载
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = { PbTopBar(title = "插件", onBack = onBack) },
+    PbScaffold(
+        title = "插件",
+        onBack = onBack,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = onInstall,
@@ -96,21 +95,25 @@ fun PluginListScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
-    ) { padding ->
+    ) { topInset ->
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxSize().padding(top = topInset),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator()
             }
-            return@Scaffold
+            return@PbScaffold
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentPadding =
                 PaddingValues(
                     start = Space.lg,
                     end = Space.lg,
-                    top = Space.md,
+                    // 顶栏是浮在列表上方的，第一条要自己避开它（见 PbScaffold 的 KDoc）
+                    top = Space.md + topInset,
                     // 底部让开 FAB，否则最后一张卡会被它压住
                     bottom = 88.dp,
                 ),

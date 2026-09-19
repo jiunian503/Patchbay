@@ -14,11 +14,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
 import com.aichat.ui.common.PbTonalButton
-import com.aichat.ui.common.PbTopBar
+import com.aichat.ui.common.PbScaffold
 
 /** 添加 / 编辑服务商。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,19 +49,19 @@ fun ProviderEditScreen(
         if (state.done) onBack()
     }
 
-    Scaffold(
-        topBar = {
-            PbTopBar(
-                title = if (state.isNew) "添加服务商" else "编辑服务商",
-                onBack = onBack,
-            )
-        },
-    ) { padding ->
+    PbScaffold(
+        title = if (state.isNew) "添加服务商" else "编辑服务商",
+        onBack = onBack,
+    ) { topInset ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
+                // 这两个 padding 都在 `verticalScroll` **之后** —— 它们是滚动区域
+                // **内部**的内边距，所以滚动时表单照样会从顶栏背后经过（毛玻璃靠它）。
+                // 放在 `verticalScroll` 之前就成了「把滚动区整个推下去」，顶栏背后
+                // 永远是空的。
+                .padding(top = topInset)
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

@@ -23,13 +23,10 @@ import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +46,7 @@ import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbHintCard
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbNavRow
+import com.aichat.ui.common.PbScaffold
 import com.aichat.ui.common.PbSectionLabel
 
 /**
@@ -123,23 +121,9 @@ fun ProviderListScreen(
         )
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("设置") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(PbIcons.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-            )
-        },
+    PbScaffold(
+        title = "设置",
+        onBack = onBack,
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { onEdit(null) },
@@ -149,14 +133,15 @@ fun ProviderListScreen(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
-    ) { padding ->
+    ) { topInset ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentPadding =
                 PaddingValues(
                     start = Space.lg,
                     end = Space.lg,
-                    top = Space.md,
+                    // 顶栏浮在列表上方，第一条要自己避开它（见 PbScaffold 的 KDoc）
+                    top = Space.md + topInset,
                     // 底部让开 FAB，否则最后一张卡会被它压住
                     bottom = 88.dp,
                 ),

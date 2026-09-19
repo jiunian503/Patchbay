@@ -18,7 +18,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,7 +43,7 @@ import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbHintCard
 import com.aichat.ui.common.PbIcons
-import com.aichat.ui.common.PbTopBar
+import com.aichat.ui.common.PbScaffold
 
 /**
  * 历史消息检索页（Hermes 三层记忆的第三层）。
@@ -91,14 +90,17 @@ fun ConversationSearchScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = { PbTopBar(title = "搜索消息", onBack = onBack) },
-    ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+    PbScaffold(title = "搜索消息", onBack = onBack) { topInset ->
+        Column(Modifier.fillMaxSize()) {
             Row(
                 modifier =
-                    Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.md),
+                    Modifier
+                        .fillMaxWidth()
+                        // 搜索栏**固定**在顶栏下方，不跟着结果列表滚 ——
+                        // 滚走了就没法改查询了。所以这一屏顶栏背后永远是空的，
+                        // 毛玻璃在这儿只是保持和其他页面一致，没有内容可模糊。
+                        .padding(top = topInset)
+                        .padding(horizontal = Space.lg, vertical = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(

@@ -20,12 +20,10 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,7 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
 import com.aichat.ui.common.PbButton
-import com.aichat.ui.common.PbTopBar
+import com.aichat.ui.common.PbScaffold
 import com.aichat.plugin.manifest.SettingType
 import com.aichat.ui.conversations.formatTime
 
@@ -72,23 +70,24 @@ fun PluginDetailScreen(
     // 插件没了（被卸载、或从安装页跳过来时 id 不对）就返回，不要停在一个空页面上
     LaunchedEffect(state.missing) { if (state.missing) onBack() }
 
-    Scaffold(
-        topBar = {
-            PbTopBar(title = state.name.ifBlank { "插件" }, onBack = onBack)
-        },
-    ) { padding ->
+    PbScaffold(title = state.name.ifBlank { "插件" }, onBack = onBack) { topInset ->
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxSize().padding(top = topInset),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator()
             }
-            return@Scaffold
+            return@PbScaffold
         }
 
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
+                // 滚动区域**内部**的内边距（在 `verticalScroll` 之后），
+                // 这样滚动时内容会从顶栏背后经过（毛玻璃靠它）
+                .padding(top = topInset)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

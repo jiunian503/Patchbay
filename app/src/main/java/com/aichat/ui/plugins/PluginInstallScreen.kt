@@ -19,11 +19,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
 import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbOutlinedButton
-import com.aichat.ui.common.PbTopBar
+import com.aichat.ui.common.PbScaffold
 import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.manifest.displayName
@@ -115,16 +113,14 @@ fun PluginInstallScreen(
         onInstalled(pluginId)
     }
 
-    Scaffold(
-        topBar = {
-            PbTopBar(title = "安装插件", onBack = onBack)
-        },
-    ) { padding ->
+    PbScaffold(title = "安装插件", onBack = onBack) { topInset ->
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
+                // 滚动区域**内部**的内边距（在 `verticalScroll` 之后），
+                // 这样滚动时内容会从顶栏背后经过（毛玻璃靠它）
+                .padding(top = topInset)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {

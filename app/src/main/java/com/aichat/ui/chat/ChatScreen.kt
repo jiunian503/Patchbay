@@ -83,7 +83,7 @@ import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbTonalButton
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.filter
@@ -258,7 +258,7 @@ fun ChatScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                 ),
-                modifier = Modifier.hazeChild(
+                modifier = Modifier.hazeEffect(
                     state = hazeState,
                     style = topBarHazeStyle,
                 ),

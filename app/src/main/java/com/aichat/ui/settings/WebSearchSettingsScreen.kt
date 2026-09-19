@@ -19,13 +19,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +42,7 @@ import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbOutlinedButton
+import com.aichat.ui.common.PbScaffold
 import com.aichat.ui.common.PbSectionLabel
 
 /**
@@ -93,39 +91,29 @@ fun WebSearchSettingsScreen(
         }
     }
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("联网搜索") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(PbIcons.ArrowBack, contentDescription = "返回")
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-            )
-        },
+    PbScaffold(
+        title = "联网搜索",
+        onBack = onBack,
         snackbarHost = { SnackbarHost(snackbar) },
-    ) { padding ->
+    ) { topInset ->
         if (state.loading) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxSize().padding(top = topInset),
+                contentAlignment = Alignment.Center,
+            ) {
                 CircularProgressIndicator()
             }
-            return@Scaffold
+            return@PbScaffold
         }
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize(),
             contentPadding =
                 PaddingValues(
                     start = Space.lg,
                     end = Space.lg,
-                    top = Space.md,
+                    // 顶栏浮在列表上方，第一条要自己避开它（见 PbScaffold 的 KDoc）
+                    top = Space.md + topInset,
                     bottom = Space.xxl,
                 ),
             verticalArrangement = Arrangement.spacedBy(Space.sm),

@@ -9,6 +9,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 
 /**
@@ -41,6 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
  * 见 §55 ③），中间是带下拉的服务商/模型两行标题，右边是设置齿轮 —— 它比这个
  * 组件复杂得多，所以没有共用。但**左侧那个箭头本身是同一个** `PbIcons.ArrowBack`，
  * 这一点是一致的。
+ *
+ * ## `modifier` 与 `containerColor` 不面向普通调用方
+ *
+ * 这两个参数是留给 `PbScaffold` 的：它要用它们把顶栏改成「透明 + 挂 `hazeEffect`」
+ * 来支持毛玻璃（§62）。普通二级页面直接用 `PbScaffold` 就好，不用碰这两个。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,8 +55,11 @@ fun PbTopBar(
     title: String,
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     TopAppBar(
+        modifier = modifier,
         title = {
             Text(
                 text = title,
@@ -73,7 +83,7 @@ fun PbTopBar(
         actions = actions,
         colors =
             TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
+                containerColor = containerColor,
                 titleContentColor = MaterialTheme.colorScheme.onSurface,
             ),
     )
