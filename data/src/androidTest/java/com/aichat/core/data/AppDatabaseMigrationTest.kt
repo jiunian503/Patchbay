@@ -38,6 +38,27 @@ import org.junit.runner.RunWith
  *
  * **所以：改了实体但忘了改迁移，这个测试会直接失败。** 这正是它存在的意义。
  *
+ * ## 已知边界：`5.json` 的 identityHash 不可信（但无害）
+ *
+ * 每个 schema JSON 里有个 `identityHash`，是 Room 对结构算的哈希 —— 结构不同就
+ * 必然不同。实测 `5.json` 和 `6.json` 的 identityHash **一模一样**，说明
+ * `5.json` 那份是手工反推的：某轮把 `version = 5 → 6` 的改动被工具静默丢弃，
+ * 于是 Room 按「版本号还是 5、实体已是新形状」导出了 `5.json`（也就是把当前
+ * 版本号对应的那份**重写成了 v6 形状**），后来手工把结构改回来，hash 忘了改。
+ *
+ * **为什么无害**：Room 决定「要不要迁移」看的是**版本号**，不是 hash。hash 只在
+ * `onOpen` 时做一次「文件里存的 vs 代码里的」一致性检查，而那是相等/不等的比较，
+ * 具体值是什么不影响判断。所以真实用户从 v5 升 v6 照常走 `MIGRATION_5_6`。
+ * 测试这一侧，`runMigrationsAndValidate` 的结构校验是硬的。
+ *
+ * **怎么确认它不是假绿**（实测过，别只信这段注释）：把 `MIGRATION_5_6` 的三条
+ * `ALTER TABLE` 删掉一条再跑本测试 —— 14 条里有 3 条立刻红，报
+ * `Migration didn't properly handle: provider`。也就是校验确实在看结构，
+ * 没有因为 hash 相同而跳过。
+ *
+ * 真 v5 的 hash 已经**无法恢复**（生成它的那份代码不存在了），所以这里不修 ——
+ * 改了只会更假。记住这条即可。
+ *
  * ## 方法名里为什么没有空格
  *
  * **instrumented 测试会被 dex，而 DEX 版本低于 040（对应 API 30）时
