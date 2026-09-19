@@ -278,6 +278,7 @@ fun ChatScreen(
             ) {
                 MessageArea(
                     state = state,
+                    conversationId = conversationId,
                     onLoadEarlier = viewModel::loadEarlier,
                     onRegenerate = viewModel::regenerate,
                     onEdit = { editing = it },
@@ -315,6 +316,15 @@ private fun MessageArea(
     onEdit: (MessageUi) -> Unit,
     highlightMessageId: Long? = null,
     highlightQuery: String? = null,
+    /**
+     * 当前会话。**必须传进来** —— 下面的落位 `LaunchedEffect` 拿它当 key。
+     *
+     * 不加的话：切会话时 [MessageArea] 并没有离开 composition，而
+     * `state.loading`（新旧都是 false）和 `highlightMessageId`（都是 null）
+     * 也都没变 —— key 没变，落位逻辑就**不会重新执行**，于是新会话继承了
+     * 上一个会话的滚动位置。症状是切过去看到的是中间某一段，不是最新消息。
+     */
+    conversationId: String,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -366,7 +376,12 @@ private fun MessageArea(
     // 不新开一条 `LaunchedEffect` 是刻意的：定位必须发生在「落到底部」之后，
     // 拆成两条就得依赖它们的执行顺序，而那个顺序没有保证 ——
     // 一旦反过来，定位会被随后的滚底覆盖，症状是「点了搜索结果，跳进去还在底部」。
-    LaunchedEffect(state.loading, highlightMessageId) {
+    //
+    // `conversationId` 必须在 key 里。切会话时这个 composable **没有**离开
+    // composition，而 `state.loading`（新旧都是 false）和 `highlightMessageId`
+    // （都是 null）也没变 —— 只靠那两个的话这条 effect 根本不会重启，
+    // 于是新会话继承了上一个会话的滚动位置。
+    LaunchedEffect(conversationId, state.loading, highlightMessageId) {
         if (state.loading) return@LaunchedEffect
 
         val target = highlightIndex(state.messages, highlightMessageId)
