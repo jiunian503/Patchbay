@@ -1534,7 +1534,20 @@ private fun ToolApprovalDialog(
                 )
                 Spacer(Modifier.height(4.dp))
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    // 底色**不能**用 `surfaceVariant` —— 它在浅色主题下是 `Ink100`，
+                    // 而 `AlertDialog` 的默认底色是 `surfaceContainerHigh`，**也是
+                    // `Ink100`**（见 `theme/Theme.kt`）。两者相同 = 这个块在视觉上
+                    // 根本不存在：三十六轮量它的圆角时，整行像素扫描没有任何跳变，
+                    // 全程 `edeff4`。
+                    //
+                    // 换 `surfaceContainerHighest`：浅色下是 `Ink200`（比弹窗底色深
+                    // 16 个色阶），深色下是 `#262A33`（比弹窗底色亮 8 个色阶）——
+                    // 两个主题下都分得开。
+                    //
+                    // ⚠️ 消息里的代码块用的是 `surfaceVariant`，这里**故意不同**。
+                    // 同一个颜色在不同上下文里的可见性不一样：代码块的背景是页面
+                    // 底色（`Ink25`，浅），参数块的背景是弹窗底色（本身就是 `Ink100`）。
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier.fillMaxWidth(),
                 ) {

@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -428,6 +429,25 @@ private fun EnumField(field: SettingField, onTextChange: (String, String) -> Uni
                 selected = field.text == option,
                 onClick = { onTextChange(field.key, option) },
                 label = { Text(option, style = MaterialTheme.typography.labelSmall) },
+                // 选中态的底色必须**显式指定**，不能吃 M3 的默认值。
+                //
+                // 默认值（`FilterChipTokens.FlatSelectedContainerColor`）是
+                // `secondaryContainer` —— 而本 App 的浅色主题里它和
+                // `surfaceVariant` 是**同一个值** `Ink100`（见 `theme/Theme.kt`），
+                // 也就是这张 `SettingsBlock` 卡片自己的底色。
+                //
+                // 同时选中态的描边宽度是 **0dp**（`FlatSelectedOutlineWidth`），
+                // 未选中态才是 1dp 描边。两者相加：**选中的那颗药丸整个消失**，
+                // 只剩文字颜色从 `onSurfaceVariant` 变成 `onSecondaryContainer`。
+                // 用户点了「fahrenheit」，看到的是选项毫无反应。
+                //
+                // 改用 `primaryContainer`：它是这个 App 里既有的「选中」色
+                // （会话抽屉里的当前会话、用户消息气泡都用它），和 `Ink100`
+                // 有色相差别，不靠明度也能分辨。
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
             )
         }
     }
