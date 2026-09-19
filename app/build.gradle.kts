@@ -128,4 +128,12 @@ dependencies {
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+  // 毛玻璃（Apache-2.0）。只碰 :app —— 它本来就依赖全部模块，所以加进来
+  // 不会污染 :tools / :plugin 的纯 JVM 纪律。
+  //
+  // 1.x 是**单 artifact**（源捕获和效果都在这一个里）；2.0 才拆成
+  // haze / haze-blur / haze-blur-materials 好几个。为什么钉在 1.6.10
+  // 而不是更新的版本，见 libs.versions.toml 里那段注释。
+  implementation(libs.haze)
 }

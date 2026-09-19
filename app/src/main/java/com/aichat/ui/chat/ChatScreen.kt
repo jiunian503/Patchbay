@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -47,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,8 +62,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -76,6 +81,11 @@ import com.aichat.theme.MonoTextStyle
 import com.aichat.theme.Space
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbTonalButton
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.filter
 
 /**
@@ -181,9 +191,77 @@ fun ChatScreen(
         )
     }
 
+    // 顶栏毛玻璃的源。挂在消息列表上（见下面的 `hazeSource`），
+    // 顶栏自己用 `hazeChild` 取它背后那一条来模糊。
+    val hazeState = rememberHazeState()
+
+    // 顶栏压在滚动内容上时的样子。
+    //
+    // **三个字段都要显式给 —— 默认值在这里是有坑的。**
+    // `HazeStyle` 的默认值全是 `Unspecified`：
+    //   · 不给 `blurRadius` → 根本不模糊
+    //   · 不给 `tint` → 顶栏背后是纯模糊，标题压在花掉的内容上读不清
+    //   · 不给 `fallbackTint` → 不能模糊的机器上什么都不画
+    //
+    // `fallbackTint` 不是理论分支：真模糊要 Android 12（API 31）的 `RenderEffect`，
+    // 而本 App 的 `minSdk` 是 28。haze 的判定就一行 ——
+    // `HazeNode.android.kt` 的 `isBlurEnabledByDefault() = Build.VERSION.SDK_INT >= 31`
+    // —— 32 以下全走这条路，那时 `tint` **会被完全忽略**（`HazeStyle` 的 KDoc：
+    // "When the fallback tint is used, the tints provided in [tints] are ignored"）。
+    // 所以调 `tint` 之前先确认走的是哪条路，别对着 fallback 路径调半天。
+    //
+    // tint 的 alpha 是这套东西里唯一需要调的旋钮，**它没有普适的正确答案** ——
+    // 取决于背后内容的对比度。实测（2026-09-19，MuMu / Android 15，
+    // 代码块滚到顶栏背后，取顶栏内 x∈[150,500] 的平均色）：
+    //
+    //     alpha 0.72 → (243,244,245)   与页面底色 (250,250,252) 差  7 个色阶
+    //     alpha 0.45 → (240,241,243)   差 10
+    //     alpha 0    → (227,229,234)   差 23
+    //
+    // 三档**单调变化**，说明模糊与 tint 都真的在工作。但官方默认的
+    // `HazeDefaults.tintAlpha = 0.7` 在这个 App 上等于一条白条：消息里的内容
+    // 本来就浅（背景近白、代码块浅灰 237、气泡浅紫），压上 70% 的 surface
+    // 之后剩下的差异人眼分辨不出。**这个 App 的配色决定了毛玻璃只能做得很轻** ——
+    // 想要 iOS 那种一眼可见的磨砂感，得有对比度更高的内容垫在底下。
+    //
+    // `backgroundColor` 按官方文档给**不透明**色：它画在模糊内容**下面**，
+    // 职责是兜底 —— 模糊区里没有内容的地方露出来的应该是主题底色。
+    // 顶栏背后的底色，用 `background` 而**不是** `surface`。
+    //
+    // 两者在本 App 的浅色主题下不是同一个值：`background = Ink25` (250,250,252)、
+    // `surface = Ink0` (255,255,255)，差 5 个色阶。官方 KDoc 说
+    // `backgroundColor` "typically would be MaterialTheme.colorScheme.surface" ——
+    // 那是针对「页面底色就是 surface」的常见主题。这里页面底色是 `background`，
+    // 而顶栏背后**没有内容的地方露出来的正是页面底色**，所以要用 `background`。
+    //
+    // 竖屏看不出来（内容限宽 600dp 几乎铺满），横屏才暴露：1097dp 下内容两侧
+    // 各留出约 98dp，顶栏横跨全宽，那 5 个色阶会沿着顶栏下沿拉出一条可见的横线。
+    //
+    // `fallbackTint` 反过来用 `surface`：它模拟的是「不能模糊时的普通不透明顶栏」，
+    // 而 M3 的顶栏本来就该比页面底色亮一档（默认 `surfaceContainer` 就是为此）。
+    val topBarBackdrop = MaterialTheme.colorScheme.background
+    val topBarFallback = MaterialTheme.colorScheme.surface
+    val topBarHazeStyle = remember(topBarBackdrop, topBarFallback) {
+        HazeStyle(
+            backgroundColor = topBarBackdrop,
+            tint = HazeTint(topBarBackdrop.copy(alpha = 0.35f)),
+            blurRadius = 20.dp,
+            fallbackTint = HazeTint(topBarFallback.copy(alpha = 0.94f)),
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
+                // 背景必须透明，否则把 haze 的模糊整个盖住 ——
+                // M3 的默认 containerColor 是 surfaceContainer，不透明
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                ),
+                modifier = Modifier.hazeChild(
+                    state = hazeState,
+                    style = topBarHazeStyle,
+                ),
                 title = {
                     // 可点 —— 换这个会话用的服务商。
                     //
@@ -257,12 +335,31 @@ fun ChatScreen(
         // 只在宽屏生效：411dp 的手机、617dp 的竖屏都不受影响，所以没有回归。
         val contentMaxWidth = 600.dp
 
+        // 顶栏盖住的高度。Scaffold 给的 `padding.top` 就是它 ——
+        // TopAppBar 自己处理状态栏 inset，所以这个值**已经含状态栏**，
+        // 不用再自己加一遍
+        val topBarHeight = padding.calculateTopPadding()
+        val layoutDirection = LocalLayoutDirection.current
+
         // 限宽加在**最外层**，而不是给消息列表、错误条、输入栏各加一次 ——
         // 三者的宽度必须一致，漏掉一个就会在宽屏上左右错开
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                // ⚠️ **顶部故意不消费 Scaffold 给的 padding。**
+                //
+                // Scaffold 把 content 放在 (0,0) 铺满、topBar 后绘制（画在上层），
+                // 而 `padding.top` 正是 topBar 的实测高度。吃掉它，消息就永远滚
+                // 不到顶栏下面，haze 也就没有可模糊的东西 —— 顶栏会退化成一块
+                // 不透明的白条，毛玻璃白做。
+                //
+                // 让出来之后，第一条消息靠列表自己的 `contentPadding` 避开顶栏
+                // （见 MessageArea 的 topInset），而滚动中的内容会从顶栏背后经过。
+                .padding(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    end = padding.calculateEndPadding(layoutDirection),
+                    bottom = padding.calculateBottomPadding(),
+                )
                 .imePadding(),
             contentAlignment = Alignment.TopCenter,
         ) {
@@ -274,7 +371,11 @@ fun ChatScreen(
             Column(
                 modifier = Modifier
                     .widthIn(max = contentMaxWidth)
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    // 毛玻璃的**源**。挂在这里而不是挂在 Scaffold 上：
+                    // 顶栏用 `HazeInput.Sources(..., Behind)` 只取自己背后那一条，
+                    // 所以源的范围就是「屏幕上会从顶栏下面经过的东西」。
+                    .hazeSource(hazeState),
             ) {
                 MessageArea(
                     state = state,
@@ -284,6 +385,7 @@ fun ChatScreen(
                     onEdit = { editing = it },
                     highlightMessageId = highlightMessageId,
                     highlightQuery = highlightQuery,
+                    topInset = topBarHeight,
                     modifier = Modifier.weight(1f),
                 )
 
@@ -325,6 +427,15 @@ private fun MessageArea(
      * 上一个会话的滚动位置。症状是切过去看到的是中间某一段，不是最新消息。
      */
     conversationId: String,
+    /**
+     * 顶栏盖住的高度，列表拿它当 `contentPadding` 的顶部。
+     *
+     * 顶栏是**浮在列表上方**的（见 `ChatScreen` 里那段布局说明），所以第一条
+     * 消息必须自己避开它。用 `contentPadding` 而不是 `Modifier.padding`：
+     * 前者是**内容内边距**，滚动时消息照样会从顶栏背后经过（毛玻璃才有东西
+     * 可模糊）；后者会把列表整个推下去，顶栏背后永远是空的。
+     */
+    topInset: Dp = 0.dp,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -448,7 +559,16 @@ private fun MessageArea(
         modifier = modifier.fillMaxSize(),
         // 左右 16dp 而不是 12dp：12dp 在 411dp 的手机宽度上，正文几乎是贴着屏幕
         // 边走的，而右边用户气泡又自带内边距 —— 两侧视觉重量不对称
-        contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
+        //
+        // 顶部再加 `topInset`（顶栏高度）：顶栏浮在列表上方，第一条消息要避开它。
+        // 用 `contentPadding` 而不是给 LazyColumn 加 `Modifier.padding`，是为了让
+        // **滚动中的**消息仍然从顶栏背后经过 —— 顶栏的毛玻璃全靠它。
+        contentPadding = PaddingValues(
+            start = Space.lg,
+            end = Space.lg,
+            top = Space.md + topInset,
+            bottom = Space.md,
+        ),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (state.hasMore) {
