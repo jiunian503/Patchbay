@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      图标底色。跳线板是录音棚和机房里的硬件，用深靛蓝比亮色更像「设备」而不是
+      「应用」；白色前景压在它上面是各类启动器里对比度最高的组合 —— 图标在小尺寸下
+      只有对比度是能保住的，细节都会糊掉。
+    -->
+    <color name="ic_launcher_background">#312E81</color>
+</resources>

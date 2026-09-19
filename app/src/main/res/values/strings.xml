@@ -1,0 +1,8 @@
+<resources>
+    <!--
+      手机上图标下面那行字。改名只需要动这里 —— 代码里的 Kotlin 包名
+      com.aichat 是独立的一层，不跟着动；真正「发布后改不了」的只有
+      app/build.gradle.kts 里的 applicationId。
+    -->
+    <string name="app_name">Patchbay</string>
+</resources>

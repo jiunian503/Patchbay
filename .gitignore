@@ -1,0 +1,23 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+build/
+.gradle/
+.kotlin/
+.tmp/
+
+# 真机验收截图。每轮都会新增十几张、单张 200K —— 是过程产物不是源码，
+# 留在工作区就行。真需要留证据的截图应该单独挑出来放进 docs/，而不是让它无限堆。
+artifacts/

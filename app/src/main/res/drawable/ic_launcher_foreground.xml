@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!--
+      Patchbay 的图标：两个插孔 + 一根跳线。
+
+      为什么是这两个元素：跳线板的全部意义就是「用一根线把两个孔连起来」——
+      孔是外部能力，线是用户自己插的。它同时说清了「接进来」和「可插拔」。
+
+      几何：自适应图标的 108 画布只有中心约 66 是安全的（外面那圈会被各家
+      启动器的圆形/方形遮罩裁掉），所以图形压在中心约 50x38 的范围里，
+      四周留足余量。线宽 4.5 是按「可见区 72 映射到 48dp」倒推的 ——
+      再细在小尺寸下就断了。
+    -->
+    <path
+        android:pathData="M39,55.5 C39,31 69,31 69,55.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M39,63 m-7.5,0 a7.5,7.5 0 1,0 15,0 a7.5,7.5 0 1,0 -15,0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M69,63 m-7.5,0 a7.5,7.5 0 1,0 15,0 a7.5,7.5 0 1,0 -15,0"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4.5"
+        android:fillColor="#00000000" />
+</vector>

@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patchbay.local/schemas/plugin-manifest.schema.json",
+  "title": "插件清单",
+  "description": "所有集成的公共契约。声明式、脚本、MCP、内置原生四种运行形态共用同一份清单，宿主据此决定如何加载、如何授权、如何向模型暴露工具。",
+  "type": "object",
+  "required": [
+    "id",
+    "name",
+    "version",
+    "runtime",
+    "tools"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+([.-][a-z0-9]+)+$",
+      "description": "全局唯一标识，反域名风格。安装后不可变更，是权限授权的键。"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "license": {
+      "type": "string"
+    },
+    "runtime": {
+      "enum": [
+        "declarative",
+        "script",
+        "mcp",
+        "native"
+      ],
+      "description": "declarative=纯 HTTP 声明；script=内置 Node 解释纯 JS；mcp=接入 MCP 生态；native=随 APK 打包的二进制"
+    },
+    "permissions": {
+      "$ref": "#/$defs/permissions"
+    },
+    "settings": {
+      "type": "object",
+      "description": "插件需要的用户配置项，安装时向用户索取。API Key 一类敏感项须标记 secret。",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type",
+          "title"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "enum"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enum": {
+            "type": "array"
+          },
+          "default": {},
+          "secret": {
+            "type": "boolean",
+            "default": false,
+            "description": "为 true 时值存入 Keystore，不落明文、不随配置导出"
+          }
+        }
+      }
+    },
+    "entry": {
+      "$ref": "#/$defs/entry"
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/tool"
+      }
+    }
+  },
+  "$defs": {
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "network": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "允许访问的主机白名单，如 api.open-meteo.com。\"*\" 表示任意主机，安装时按高危提示。"
+        },
+        "filesystem": {
+          "enum": [
+            "none",
+            "read",
+            "readwrite"
+          ],
+          "default": "none",
+          "description": "只能作用于插件自己的工作区目录，不给全盘访问。"
+        },
+        "shell": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否允许执行 shell 命令。高危，默认拒绝，安装时必须二次确认。"
+        },
+        "device": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "enum": [
+              "accessibility",
+              "clipboard",
+              "notification",
+              "contacts",
+              "calendar",
+              "location",
+              "camera",
+              "sms"
+            ]
+          }
+        },
+        "linuxEnv": {
+          "type": "boolean",
+          "default": false,
+          "description": "是否需要 Ubuntu 工作区。为 true 时首次调用要等环境启动，宿主应据此调整超时。"
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declarative": {
+          "$ref": "#/$defs/entryDeclarative"
+        },
+        "script": {
+          "$ref": "#/$defs/entryScript"
+        },
+        "mcp": {
+          "$ref": "#/$defs/entryMcp"
+        },
+        "native": {
+          "$ref": "#/$defs/entryNative"
+        }
+      }
+    },
+    "entryDeclarative": {
+      "type": "object",
+      "required": [
+        "baseUrl"
+      ],
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "插件级静态请求头，所有工具共用。值里只支持 {{settings.配置项名}} —— 这里不能用 {{参数名}}，因为参数是每个工具各自的，而这段头是共享的。不能设置 Host。"
+        },
+        "auth": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "enum": [
+                "none",
+                "bearer",
+                "header",
+                "query"
+              ],
+              "default": "none"
+            },
+            "settingKey": {
+              "type": "string",
+              "description": "API Key 取自哪个 settings 项"
+            },
+            "headerName": {
+              "type": "string"
+            },
+            "queryName": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "entryScript": {
+      "type": "object",
+      "required": [
+        "main"
+      ],
+      "properties": {
+        "main": {
+          "type": "string",
+          "description": "入口 JS 文件相对路径"
+        },
+        "runtime": {
+          "enum": [
+            "node"
+          ],
+          "default": "node"
+        },
+        "memoryLimitMb": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 512,
+          "default": 128
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 600000,
+          "default": 30000
+        }
+      }
+    },
+    "entryMcp": {
+      "type": "object",
+      "properties": {
+        "transport": {
+          "enum": [
+            "stdio",
+            "http",
+            "sse"
+          ],
+          "default": "stdio"
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "远程 MCP 服务的地址。transport 是 http 或 sse 时必填；现代版协议把两者合并成了 Streamable HTTP（单一端点、纯 POST），所以这两个值走同一条路径。"
+        },
+        "auth": {
+          "type": "object",
+          "description": "认证方式，和 entry.declarative.auth 是同一套。远程 MCP 服务基本都要 bearer。",
+          "properties": {
+            "type": {
+              "enum": [
+                "none",
+                "bearer",
+                "header",
+                "query"
+              ],
+              "default": "none"
+            },
+            "settingKey": {
+              "type": "string",
+              "description": "密钥取自哪个 settings 项。必须真实存在，否则密钥会静默地不发送。"
+            },
+            "headerName": {
+              "type": "string"
+            },
+            "queryName": {
+              "type": "string"
+            }
+          }
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "插件级静态请求头，所有 MCP 请求共用。值里只支持 {{settings.配置项名}}。和 entry.declarative.headers 同一套规则。"
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "白名单：只暴露这些 MCP 工具。留空表示全部暴露。写了对端没有的名字会在装配时报出来。"
+        }
+      }
+    },
+    "entryNative": {
+      "type": "object",
+      "required": [
+        "library"
+      ],
+      "properties": {
+        "library": {
+          "type": "string",
+          "pattern": "^lib[a-z0-9_]+\\.so$",
+          "description": "nativeLibraryDir 下的文件名。必须是 lib*.so 命名，否则不会被打进 release 包。"
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "parameters"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "给模型看的说明，直接决定它会不会选对工具、参数填得对不对。要写清什么时候该用、什么时候不该用。"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "JSON Schema 片段，作为 function calling 的 parameters 原样传给模型。"
+        },
+        "requiresConfirmation": {
+          "type": "boolean",
+          "description": "调用前弹窗让用户确认。三态：不写 = 宿主按 HTTP 方法判断（GET 免确认，其余确认）；true = 一律确认；false = 作者明确担保这个工具不改动服务端数据。写操作、花钱、对外发消息一律写 true。"
+        },
+        "dangerous": {
+          "type": "boolean",
+          "default": false,
+          "description": "标记为高危。宿主可据此在自动模式下拒绝执行。"
+        },
+        "request": {
+          "$ref": "#/$defs/request",
+          "description": "declarative 运行时专用：该工具对应的 HTTP 请求模板。"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "DELETE",
+            "PATCH"
+          ],
+          "default": "GET"
+        },
+        "host": {
+          "type": "string",
+          "description": "覆盖 entry.declarative.baseUrl 的主机名。只填主机名（例如 geocoding-api.example.com），不要带协议、路径或端口 —— 协议和端口一律沿用 baseUrl，这样作者没法把请求悄悄降级成 http 明文。这个主机名必须同时出现在 permissions.network 里，否则安装时就会报错。"
+        },
+        "path": {
+          "type": "string",
+          "description": "相对 baseUrl 的路径，支持 {{参数名}} 占位"
+        },
+        "query": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "查询参数模板，值支持 {{参数名}}。值必须写成字符串：写 \"3\" 而不是 3。查询参数在网络上本来就是字符串，统一之后才可能放进占位符。"
+        },
+        "body": {
+          "description": "请求体模板，值支持 {{参数名}}"
+        },
+        "responsePath": {
+          "type": "string",
+          "description": "从响应 JSON 中提取结果的点分路径，如 data.list"
+        }
+      }
+    }
+  }
+}

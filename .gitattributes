@@ -1,0 +1,14 @@
+# 不做任何换行符转换。
+#
+# 原因：这台机器上 PortableGit 的全局 core.autocrlf=true，仓库里存 LF、检出时
+# 转成 CRLF。结果是 `git checkout -- <文件>` 会在磁盘上悄悄改写字节，而 git
+# 自己报「干净」—— 也就是说「还原」并不真的还原。
+#
+# 这个工程里有逐字节比对文件的测试（BundledManifestsTest 拿 assets/plugins/*.json
+# 和 plugin/examples/*/manifest.json 比），所以静默改写换行符是会真的把测试搞红的，
+# 而且从 diff 上看不出来。
+#
+# `-text` = 对任何文件都不做换行符转换，原样存原样取。代价是仓库里 LF/CRLF 混着，
+# 好处是 `git checkout` 等于逐字节还原 —— 对一个「安全网」来说后者才是重点。
+# 哪天要公开出去，改成 `* text=auto eol=lf` 并跑一次 --renormalize 就行。
+* -text

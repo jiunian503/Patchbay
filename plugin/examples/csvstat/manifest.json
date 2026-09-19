@@ -1,0 +1,41 @@
+{
+  "id": "pub.example.csvstat",
+  "name": "CSV 统计",
+  "version": "1.0.0",
+  "description": "对 CSV 做列级统计：数值列给出均值、中位数、分位数，文本列给出取值分布。脚本插件示例。",
+  "author": "example",
+  "license": "MIT",
+  "runtime": "script",
+
+  "permissions": {
+    "network": [],
+    "filesystem": "read",
+    "shell": false,
+    "device": [],
+    "linuxEnv": false
+  },
+
+  "entry": {
+    "script": {
+      "main": "index.js",
+      "runtime": "node",
+      "memoryLimitMb": 128,
+      "timeoutMs": 15000
+    }
+  },
+
+  "tools": [
+    {
+      "name": "csv_stats",
+      "description": "对 CSV 文本做列级统计。需要了解一份表格数据的分布时用它，比让模型自己数更准。不要用它做筛选或排序，那类需求直接读原文。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "csv": { "type": "string", "description": "CSV 原文，必须含表头行" },
+          "path": { "type": "string", "description": "或提供工作区内的 CSV 文件路径，二选一" }
+        }
+      },
+      "requiresConfirmation": false
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "id": "pub.example.weather",
+  "name": "天气查询",
+  "version": "1.0.0",
+  "description": "查询任意经纬度的当前天气与未来三天预报。零代码声明式插件示例。",
+  "author": "example",
+  "license": "MIT",
+  "runtime": "declarative",
+
+  "permissions": {
+    "network": ["api.open-meteo.com", "geocoding-api.open-meteo.com"],
+    "filesystem": "none",
+    "shell": false,
+    "device": [],
+    "linuxEnv": false
+  },
+
+  "settings": {
+    "unit": {
+      "type": "enum",
+      "title": "温度单位",
+      "enum": ["celsius", "fahrenheit"],
+      "default": "celsius"
+    }
+  },
+
+  "entry": {
+    "declarative": {
+      "baseUrl": "https://api.open-meteo.com",
+      "headers": {
+        "Accept": "application/json"
+      },
+      "auth": { "type": "none" }
+    }
+  },
+
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "查询指定经纬度的当前天气与未来三天预报。用户只说城市名时，先用 geocode_city 拿到经纬度再调用本工具，不要凭记忆猜坐标。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "latitude": { "type": "number", "minimum": -90, "maximum": 90 },
+          "longitude": { "type": "number", "minimum": -180, "maximum": 180 }
+        },
+        "required": ["latitude", "longitude"]
+      },
+      "request": {
+        "method": "GET",
+        "path": "/v1/forecast",
+        "query": {
+          "latitude": "{{latitude}}",
+          "longitude": "{{longitude}}",
+          "current": "temperature_2m,weather_code,wind_speed_10m",
+          "daily": "temperature_2m_max,temperature_2m_min,weather_code",
+          "forecast_days": "3",
+          "timezone": "auto",
+          "temperature_unit": "{{settings.unit}}"
+        },
+        "responsePath": "current"
+      }
+    },
+    {
+      "name": "geocode_city",
+      "description": "把城市名解析成经纬度。仅在用户只给了城市名、没有坐标时使用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "description": "城市名，中文或英文均可" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 10, "default": 1 }
+        },
+        "required": ["name"]
+      },
+      "request": {
+        "method": "GET",
+        "host": "geocoding-api.open-meteo.com",
+        "path": "/v1/search",
+        "query": {
+          "name": "{{name}}",
+          "count": "{{count}}",
+          "language": "zh",
+          "format": "json"
+        },
+        "responsePath": "results"
+      }
+    }
+  ]
+}

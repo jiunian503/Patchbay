@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全策略。
+
+  ## 为什么允许明文（cleartext）
+
+  用户填的接口地址里，有一类是**局域网里的自建服务**：Ollama（11434）、
+  LM Studio（1234）、vLLM、one-api 等等，它们默认只监听 http。
+  全局禁止明文的话，这些用户会看到一句「Cleartext HTTP traffic not permitted」，
+  而他们并不知道这是什么意思，也不知道该改哪。
+
+  ## 这个开关**不会**削弱 HTTPS
+
+  它只决定「用户显式写了 http:// 时允不允许连」。用户在地址栏里填
+  `https://...` 时走的仍然是完整 TLS 校验，明文许可与它无关。
+  而且 `ProviderConfig.chatCompletionsUrl` 对不带 scheme 的输入会**自动补
+  https**，所以想走明文必须由用户主动打出 `http://` —— 这是一个明确的动作。
+
+  ## 剩下的风险与取舍
+
+  用户若把公网地址误写成 `http://api.deepseek.com`，Key 会在链路上裸奔。
+  要彻底堵住只能全局禁明文，代价是自建网关全部不可用。
+  这个取舍留给产品决定：真要收紧，把 `base-config` 换成
+  `<domain-config cleartextTrafficPermitted="true">` 并逐个列出局域网域名即可。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

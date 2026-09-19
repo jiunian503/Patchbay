@@ -1,0 +1,170 @@
+{
+  "name" : "Empty Activity",
+  "short-name" : "empty-activity",
+  "tags" : ["compose", "activity", "agp-9"],
+  "arguments" : [
+    {
+      "id" : "name",
+      "description": "The application display name on the Android Device",
+      "default-value" : "AiChat"
+    },
+    {
+      "id" : "applicationId",
+      "description": "The application ID for the Gradle Android Plugin, i.e. the Android package name of the application",
+      "default-value" : "com.example.${name.toAndroidPackageSegment()}"
+    },
+    {
+      "id" : "namespace",
+      "description": "The namespace for resources and package name for Kotlin source files",
+      "default-value" : "com.example.${name.toJavaPackageSegment()}"
+    },
+    {
+      "id" : "minSdk",
+      "description": "The 'minSdk' for this application",
+      "default-value" : "24"
+    },
+    {
+      "id" : "compileSdk",
+      "description" : "The 'compileSdk' used to compile this application",
+      "default-value" : "36"
+    }
+  ],
+  "dependencies" : [
+    {
+      "sdk-package" : "platforms/android-${compileSdk}"
+    }
+  ],
+  "transformations" : [
+    {
+      "string-replace" : {
+        "description" : "Replace the Android application name in the root gradle settings file",
+        "selector" : {
+          "glob" : "/settings.gradle.kts"
+        },
+        "from" : "AiChat",
+        "to" : "${name}"
+      }
+    },
+    {
+      "string-replace" : {
+        "description" : "Replace the Android application name strings.xml",
+        "selector" : {
+          "glob" : "/app/src/main/res/values/strings.xml"
+        },
+        "from" : "AiChat",
+        "to" : "${name}"
+      }
+    },
+    {
+      "string-replace" : {
+        "description": "Replace the Android application ID in the app module gradle file",
+        "selector" : {
+          "glob" : "/app/build.gradle.kts"
+        },
+        "from" : "applicationId = \"com.aichat\"",
+        "to" : "applicationId = \"${applicationId}\""
+      }
+    },
+    {
+      "string-replace" : {
+        "description": "Replace the 'minSdk' in the app module gradle file",
+        "selector" : {
+          "glob" : "/app/build.gradle.kts"
+        },
+        "from" : "minSdk = 28",
+        "to" : "minSdk = ${minSdk}"
+      }
+    },
+    {
+      "string-replace" : {
+        "description": "Replace the 'compileSdk' in the app module gradle file",
+        "selector" : {
+          "glob" : "/app/build.gradle.kts"
+        },
+        "from" : "compileSdk = 36",
+        "to" : "compileSdk = ${compileSdk}"
+      }
+    },
+    {
+      "comment" : "Note: The 'namespace' argument is handled by the following transformation rules",
+      "string-replace" : {
+        "description" : "Replace the namespace directive in the gradle file",
+        "selector" : {
+          "glob" : "**/*.gradle.kts"
+        },
+        "from" : "namespace = \"com.aichat\"",
+        "to" : "namespace = \"${namespace}\""
+      }
+    },
+    {
+      "string-replace" : {
+        "description" : "Replace any kotlin reference in all kotlin files",
+        "selector" : {
+          "glob" : "**/*.kt"
+        },
+        "from" : "com.aichat",
+        "to" : "${namespace}"
+      }
+    },
+    {
+      "rename-file" : {
+        "description" : "Move kotlin files to the directory corresponding to the package name",
+        "selector" : {
+          "glob" : "**/*.kt"
+        },
+        "source-path" : "com/example/myapplication",
+        "target-path" : "${namespace.replace('.','/')}"
+      }
+    },
+    {
+      "rename-file" : {
+        "description" : "Rename `local.properties` template file name to expected file name",
+        "selector" : {
+          "glob" : "/local.properties.template"
+        },
+        "source-path" : "local.properties.template",
+        "target-path" : "local.properties"
+      }
+    },
+    {
+      "string-replace" : {
+        "description" : "Set the Android SDK path in the `local.properties` file",
+        "selector" : {
+          "glob" : "/local.properties"
+        },
+        "from" : "sdk.dir=C:\\Users\\nian\\Android\\Sdk",
+        "to" : "sdk.dir=${sdkPath.toJavaPropertyValue()}"
+      }
+    },
+    {
+      "string-replace": {
+        "description": "Replace compose theme name",
+        "selector": {
+          "glob": "**/*.kt"
+        },
+        "from": "AiChatTheme",
+        "to": "${name.toJavaClassName()}Theme"
+      }
+    },
+    {
+      "string-replace": {
+        "description": "Replace theme name in themes.xml",
+        "selector": {
+          "glob": "/app/src/main/res/values/themes.xml"
+        },
+        "from": "Theme.AiChat",
+        "to": "Theme.${name.toJavaClassName()}"
+      }
+    },
+    {
+      "string-replace": {
+        "description": "Replace theme name in AndroidManifest.xml",
+        "selector": {
+          "glob": "/app/src/main/AndroidManifest.xml"
+        },
+        "from": "Theme.AiChat",
+        "to": "Theme.${name.toJavaClassName()}"
+      }
+    }
+  ]
+}

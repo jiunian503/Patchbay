@@ -1,0 +1,131 @@
+plugins {
+  alias(libs.plugins.android.application)
+  alias(libs.plugins.compose.compiler)
+  alias(libs.plugins.kotlin.serialization)
+}
+
+android {
+    namespace = "com.aichat"
+    compileSdk = 36
+    defaultConfig {
+        applicationId = "com.aichat"
+        minSdk = 28
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0"
+        // 跑 app 的 instrumented test（NavScopingTest）需要显式指定，
+        // 别依赖 AGP 的默认值 —— 默认值改了的话报错是「找不到 runner」，
+        // 和「测试没配好」长得一模一样，查起来要绕一圈
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    buildFeatures {
+      compose = true
+      aidl = false
+      buildConfig = false
+      shaders = false
+    }
+
+    packaging {
+      resources {
+        excludes += "/META-INF/{AL2.0,LGPL2.1}"
+      }
+    }
+
+    testOptions {
+      unitTests.all {
+        // 把 assets 目录告诉 JVM 单测。
+        //
+        // 单元测试拿不到 Android 的 AssetManager，而「随包发的示例清单能不能装」
+        // 又必须测（那是用户第一眼看到的东西）。用系统属性把路径传进去，
+        // 比让测试去猜工作目录可靠 —— 猜错了会以「文件不存在」的形式失败，
+        // 看起来像是清单丢了，实际是路径不对
+        it.systemProperty("aichat.assetsDir", "$projectDir/src/main/assets")
+        // 作者参考版示例的位置（`plugin/examples/*/manifest.json`）。
+        //
+        // 同样用系统属性传，不用 `File("..").canonicalFile` 去猜 —— 猜错了会以
+        // 「目录不存在」的形式失败，看起来像是示例文件丢了，实际是路径不对。
+        // 而这条测试要证明的恰恰是「两份文件一致」，它自己先走错路就没有说服力了
+        it.systemProperty("aichat.examplesDir", "${rootProject.projectDir}/plugin/examples")
+
+        // **把这两个目录声明成测试任务的输入。**
+        //
+        // 有几条测试直接读文件系统里的这些文件（不是 classpath 资源），
+        // 而 Gradle 默认不知道这层依赖 —— 只改示例文件、不改测试源码时，
+        // 测试任务会被判定 UP-TO-DATE 而**整个跳过**。
+        // 「示例文件变了」恰恰是那些测试唯一要抓的场景，于是它们会以
+        // 「通过」的形式安静地失效 —— 那比没有测试更糟，因为它看起来是绿的。
+        //
+        // 用 RELATIVE 路径敏感度：换台机器、换个 checkout 目录不该触发重跑，
+        // 文件内容变了才该
+        it.inputs.dir("$projectDir/src/main/assets").withPathSensitivity(PathSensitivity.RELATIVE)
+        it.inputs.dir("${rootProject.projectDir}/plugin/examples")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+      }
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
+dependencies {
+  val composeBom = platform(libs.androidx.compose.bom)
+  implementation(composeBom)
+  androidTestImplementation(composeBom)
+
+  // 本项目模块。
+  // :chat 用 api 暴露了 :network 与 :domain，:data 用 api 暴露了 :chat，
+  // 所以这一处就能拿到对话核心、网络客户端、领域模型、数据库与密钥存储。
+  implementation(project(":data"))
+  // 内置工具包。模型能做什么全在这里，所以它必须是独立、可单测的一块
+  implementation(project(":tools"))
+  // 插件宿主。:data 用 api 暴露了它，但装配插件是 :app 的直接职责
+  // （AppContainer / ToolRegistryHolder 都直接引用 PluginRegistry），
+  // 显式写出来，别让「能编译过」依赖别人恰好用了 api 而不是 implementation
+  implementation(project(":plugin"))
+
+  // Core Android dependencies
+  implementation(libs.androidx.core.ktx)
+  implementation(libs.androidx.lifecycle.runtime.ktx)
+  implementation(libs.androidx.activity.compose)
+
+  // Arch Components
+  implementation(libs.androidx.lifecycle.runtime.compose)
+  implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+  // Compose
+  implementation(libs.androidx.compose.ui)
+  implementation(libs.androidx.compose.ui.tooling.preview)
+  implementation(libs.androidx.compose.material3)
+  // Tooling
+  debugImplementation(libs.androidx.compose.ui.tooling)
+  // Instrumented tests
+  androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+  debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+  // Local tests: jUnit, coroutines, Android runner
+  testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
+
+  // Instrumented tests: jUnit rules and runners
+  androidTestImplementation(libs.androidx.test.core)
+  androidTestImplementation(libs.androidx.test.ext.junit)
+  androidTestImplementation(libs.androidx.test.runner)
+  androidTestImplementation(libs.androidx.test.espresso.core)
+
+  // Navigation
+  implementation(libs.androidx.navigation3.ui)
+  implementation(libs.androidx.navigation3.runtime)
+  implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+}
