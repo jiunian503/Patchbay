@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbTopBar
 import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.manifest.displayName
@@ -116,10 +117,7 @@ fun PluginInstallScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("安装插件") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-            )
+            PbTopBar(title = "安装插件", onBack = onBack)
         },
     ) { padding ->
         Column(

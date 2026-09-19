@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbTopBar
 import com.aichat.plugin.manifest.SettingType
 import com.aichat.ui.conversations.formatTime
 
@@ -73,10 +74,7 @@ fun PluginDetailScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(state.name.ifBlank { "插件" }) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-            )
+            PbTopBar(title = state.name.ifBlank { "插件" }, onBack = onBack)
         },
     ) { padding ->
         if (state.loading) {

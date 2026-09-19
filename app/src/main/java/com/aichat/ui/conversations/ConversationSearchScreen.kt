@@ -16,16 +16,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -45,6 +40,11 @@ import com.aichat.di.AppContainer
 import com.aichat.domain.search.MessageHit
 import com.aichat.domain.text.TextWindow
 import com.aichat.domain.text.textWindow
+import com.aichat.theme.Space
+import com.aichat.ui.common.PbCard
+import com.aichat.ui.common.PbHintCard
+import com.aichat.ui.common.PbIcons
+import com.aichat.ui.common.PbTopBar
 
 /**
  * 历史消息检索页（Hermes 三层记忆的第三层）。
@@ -71,9 +71,14 @@ import com.aichat.domain.text.textWindow
  * 共用同一次触发，不新增时序依赖。
  *
  * 注意带过去的是 `state.submittedQuery`（产生这批结果的那次查询），
- * 不是输入框里的当前文字 —— 用户可能已经改了输入框但还没重新搜。
+ * 不是输入框里的文字 —— 用户可能已经改了输入框但还没重新搜。
+ *
+ * ## 空状态从「一行灰字」改成了带图标的卡片
+ *
+ * 原来是屏幕正中一行 13sp 的灰字，上下 80% 是空白。那不只是「简陋」——
+ * 它让用户不确定页面是不是加载完了。现在给一个图标 + 标题 + 一句说明，
+ * 而且**「还没搜」和「搜了没结果」用不同的文案**（下面 `when` 里那两个分支）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConversationSearchScreen(
     container: AppContainer,
@@ -87,16 +92,13 @@ fun ConversationSearchScreen(
     val focus = LocalFocusManager.current
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("搜索消息") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { PbTopBar(title = "搜索消息", onBack = onBack) },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier =
+                    Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
@@ -106,21 +108,26 @@ fun ConversationSearchScreen(
                     singleLine = true,
                     placeholder = { Text("搜历史消息") },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(
-                        onSearch = {
-                            // 先收键盘再查：结果列表就在下面，键盘挡着会看不到
-                            focus.clearFocus()
-                            viewModel.submit()
-                        }
-                    ),
+                    keyboardActions =
+                        KeyboardActions(
+                            onSearch = {
+                                // 先收键盘再查：结果列表就在下面，键盘挡着会看不到
+                                focus.clearFocus()
+                                viewModel.submit()
+                            }
+                        ),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(Space.sm))
                 Button(
                     onClick = {
                         focus.clearFocus()
                         viewModel.submit()
                     },
                     enabled = state.query.isNotBlank(),
+                    // 和输入框同高（OutlinedTextField 的默认最小高度就是 56dp）。
+                    // 不给高度的话按钮只有 40dp，在居中对齐下会比输入框矮一截 ——
+                    // 单看说得过去，和上面那条顶栏、下面那条列表放在一起就是「没对齐」。
+                    modifier = Modifier.height(56.dp),
                 ) {
                     Text("搜索")
                 }
@@ -136,24 +143,36 @@ fun ConversationSearchScreen(
                 // 「还没搜」和「搜了没结果」必须分开说。合成一句「没有找到」的话，
                 // 用户刚进页面就会以为库里的消息搜不出来。
                 !state.searched -> {
-                    CenterHint("输入关键词，回车开始搜。中文按字匹配，英文按整词匹配。")
+                    HintState(
+                        title = "搜你以前的对话",
+                        body = "输入关键词，回车开始搜。中文按字匹配，英文按整词匹配。",
+                    )
                 }
 
                 state.hits.isEmpty() -> {
-                    CenterHint("没有找到包含「${state.query}」的消息。")
+                    HintState(
+                        title = "没有找到",
+                        body = "没有任何消息包含「${state.query}」。换个说法，或者少打几个字再试。",
+                    )
                 }
 
                 else -> {
                     LazyColumn(
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding =
+                            PaddingValues(
+                                start = Space.lg,
+                                end = Space.lg,
+                                bottom = Space.lg,
+                            ),
+                        verticalArrangement = Arrangement.spacedBy(Space.sm),
                     ) {
                         item {
                             Text(
                                 text = "找到 ${state.hits.size} 条",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = Space.xs, top = Space.md, bottom = Space.xs),
                             )
                         }
                         items(state.hits, key = { it.messageId }) { hit ->
@@ -178,48 +197,44 @@ fun ConversationSearchScreen(
     }
 }
 
+/** 空状态。居中的一张说明卡，而不是一行悬在空白里的灰字。 */
 @Composable
-private fun CenterHint(text: String) {
-    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+private fun HintState(title: String, body: String) {
+    Box(
+        modifier = Modifier.fillMaxSize().padding(horizontal = Space.lg),
+        contentAlignment = Alignment.Center,
+    ) {
+        PbHintCard(icon = PbIcons.Search, title = title, body = body)
     }
 }
 
 @Composable
 private fun HitCard(hit: MessageHit, query: String, onClick: () -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    // 空标题是「用户还没命名」，和列表页一样显示成「新对话」
-                    text = hit.conversationTitle.ifBlank { "新对话" },
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Text(
-                    text = formatTime(hit.createdAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.height(4.dp))
+    PbCard(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = textWindow(hit.content, query).annotated(),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 4,
+                // 空标题是「用户还没命名」，和列表页一样显示成「新对话」
+                text = hit.conversationTitle.ifBlank { "新对话" },
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                text = formatTime(hit.createdAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        Spacer(Modifier.height(Space.sm))
+        Text(
+            text = textWindow(hit.content, query).annotated(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -236,8 +251,8 @@ private fun HitCard(hit: MessageHit, query: String, onClick: () -> Unit) {
  * 而「怎么强调」是展示问题：这里是加粗，将来换成背景色、下划线都不该
  * 牵动领域层。所以这里只做区间到富文本的翻译。
  *
- * 强调用**加粗**而不是换色：卡片本身有 `surfaceVariant` 底色，
- * 再加一层背景色会显脏，而加粗在任何配色方案下都读得出来。
+ * 强调用**加粗**而不是换色：卡片本身是纯白底，加一层背景色在深浅色主题下
+ * 都要单独调；而加粗在任何配色方案下都读得出来。
  */
 private fun TextWindow.annotated(): AnnotatedString = buildAnnotatedString {
     val range = hitRange

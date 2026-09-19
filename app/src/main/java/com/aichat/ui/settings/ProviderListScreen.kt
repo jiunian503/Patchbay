@@ -16,6 +16,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -416,13 +418,41 @@ private fun ProviderCard(
 
         Spacer(Modifier.height(Space.sm))
 
-        Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Space.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             TextButton(onClick = onEdit) { Text("编辑") }
             if (!row.isDefault) {
                 TextButton(onClick = onSetDefault) { Text("设为默认") }
             }
-            TextButton(onClick = onDelete) {
-                Text("删除", color = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.weight(1f))
+            // 删除收进 ⋮ 溢出菜单（§54）。
+            //
+            // 原来它和「编辑」并排常驻，每个服务商一个红字 —— 两个服务商就是两个
+            // 红色按钮，列表看起来像「一排删除」，滑动时也极易蹭到。而删服务商
+            // 比删一条会话代价高得多：**它保存的密钥会一起删掉**，要恢复只能重填一遍。
+            //
+            // 收进菜单后仍然一眼能找到（不用长按、不用猜手势），但不再抢注意力。
+            // 二次确认框照旧保留 —— 那是最后一道闸。
+            Box {
+                var menuOpen by remember { mutableStateOf(false) }
+                IconButton(onClick = { menuOpen = true }) {
+                    Icon(
+                        PbIcons.MoreVertical,
+                        contentDescription = "更多",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("删除", color = MaterialTheme.colorScheme.error) },
+                        onClick = {
+                            menuOpen = false
+                            onDelete()
+                        },
+                    )
+                }
             }
         }
     }

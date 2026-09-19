@@ -10,20 +10,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.theme.Space
+import com.aichat.ui.common.PbCard
+import com.aichat.ui.common.PbHintCard
+import com.aichat.ui.common.PbIcons
+import com.aichat.ui.common.PbTopBar
 
 /**
  * 插件列表。
@@ -49,8 +53,24 @@ import com.aichat.di.AppContainer
  *
  * 共同点是：**沉默的失败**。这三件事一旦不显示，用户拿到的信息就只剩
  * 「好像没生效」，而那是没法排查的。
+ *
+ * ## 这一页原来和设置页长得不一样
+ *
+ * 插件卡片用的是 `Card(surfaceVariant)` —— **灰底压在近白的页面底色上**。
+ * 而设置页的卡片是 `PbCard`（纯白 + 一圈描边）。于是同一个 App 里
+ * 两套卡片语言：设置页的卡片是「纸叠在桌面上」，插件页的卡片是「凹进去的补丁」。
+ *
+ * 这正是 `PbCard` 的注释里写过的那个教训 ——「复制出来的那份迟早会和原来那份不一样」。
+ * 所以这里不再自己写卡片，改用 `PbCard`。
+ *
+ * 另外两处同类的：
+ *
+ * - 「安装插件」原来是**底部通栏按钮**。它占掉一整行高度、把列表压短，
+ *   而且看起来像一条「横幅」而不是一个动作。改成 FAB（见 §54）。
+ * - 冲突提示原来用 `"⚠️ $text"`。**emoji 的字形由系统字体决定**（各家 ROM
+ *   长得都不一样）、基线压不住、颜色不受 `contentColor` 控制 —— 在一套自己定的
+ *   配色里塞一个不受控的彩色字形，是全屏最扎眼的一处不一致。改成画出来的图标。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PluginListScreen(
     container: AppContainer,
@@ -65,84 +85,126 @@ fun PluginListScreen(
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("插件") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = { PbTopBar(title = "插件", onBack = onBack) },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onInstall,
+                icon = { Icon(PbIcons.Add, contentDescription = null) },
+                text = { Text("安装插件") },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             )
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            if (state.loading) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-                return@Column
+        if (state.loading) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            return@Scaffold
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding =
+                PaddingValues(
+                    start = Space.lg,
+                    end = Space.lg,
+                    top = Space.md,
+                    // 底部让开 FAB，否则最后一张卡会被它压住
+                    bottom = 88.dp,
+                ),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            item { ToolCountNotice(state.totalTools) }
+
+            if (state.conflicts.isNotEmpty()) {
+                item { ConflictBlock(state.conflicts) }
             }
 
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                item { ToolCountNotice(state.totalTools) }
-
-                if (state.conflicts.isNotEmpty()) {
-                    item { ConflictBlock(state.conflicts) }
+            if (state.items.isEmpty()) {
+                item {
+                    PbHintCard(
+                        icon = PbIcons.Plugin,
+                        title = "还没有装插件",
+                        body = "插件是给模型接上外部能力的东西 —— 查天气、读表格、连你自己的服务。" +
+                            "点右下角装一个，或者自己写一份清单。",
+                    )
                 }
-
-                if (state.items.isEmpty()) {
-                    item { EmptyHint() }
-                } else {
-                    items(state.items, key = { it.id }) { row ->
-                        PluginCard(
-                            row = row,
-                            onOpen = { onOpenPlugin(row.id) },
-                            onToggle = { viewModel.setEnabled(row.id, it) },
-                        )
-                    }
-                }
-            }
-
-            Surface(tonalElevation = 3.dp) {
-                Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                    FilledTonalButton(onClick = onInstall, modifier = Modifier.fillMaxWidth()) {
-                        Text("安装插件")
-                    }
+            } else {
+                items(state.items, key = { it.id }) { row ->
+                    PluginCard(
+                        row = row,
+                        onOpen = { onOpenPlugin(row.id) },
+                        onToggle = { viewModel.setEnabled(row.id, it) },
+                    )
                 }
             }
         }
     }
 }
 
+/**
+ * 「模型现在能用 N 个工具」。
+ *
+ * 原来是一块铺满宽度的 `secondaryContainer` 底色横幅。横幅在视觉上等同于
+ * 「警告」，而这段话不是警告 —— 它是**这一页的说明**（告诉用户插件到底改变了什么）。
+ * 改成带边框的普通卡片 + 一个信息图标，和设置页的隐私说明同一套做法。
+ */
 @Composable
 private fun ToolCountNotice(total: Int) {
-    Surface(color = MaterialTheme.colorScheme.secondaryContainer) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(
-                text = "模型现在能用 $total 个工具",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+    PbCard {
+        Row(verticalAlignment = Alignment.Top) {
+            Icon(
+                PbIcons.Info,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp),
             )
-            Text(
-                text = "插件提供的能力会直接出现在对话里，模型自己决定什么时候调用。" +
-                    "涉及写操作、或者插件声明了「任意主机」访问权时，调用前会先问你。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
+            Spacer(Modifier.width(Space.sm))
+            Column {
+                Text(
+                    text = "模型现在能用 $total 个工具",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(Space.xs))
+                Text(
+                    text = "插件提供的能力会直接出现在对话里，模型自己决定什么时候调用。" +
+                        "涉及写操作、或者插件声明了「任意主机」访问权时，调用前会先问你。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
 
+/**
+ * 工具重名冲突。
+ *
+ * 这里**保留** `errorContainer` 底色 —— 和上面那条说明不同，这是一件真的出错的事，
+ * 而它的后果是「某个插件装了却用不了」，必须一眼看到。
+ */
 @Composable
 private fun ConflictBlock(lines: List<String>) {
-    Surface(color = MaterialTheme.colorScheme.errorContainer) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Text(
-                text = "有 ${lines.size} 个插件工具没有被启用",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
+    Surface(color = MaterialTheme.colorScheme.errorContainer, shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.fillMaxWidth().padding(Space.lg)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    PbIcons.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(Modifier.width(Space.sm))
+                Text(
+                    text = "有 ${lines.size} 个插件工具没有被启用",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+            Spacer(Modifier.height(Space.xs))
             lines.forEach {
                 Text(
                     text = it,
@@ -155,80 +217,92 @@ private fun ConflictBlock(lines: List<String>) {
 }
 
 @Composable
-private fun EmptyHint() {
-    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text = "还没有装插件",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
 private fun PluginCard(row: PluginRow, onOpen: () -> Unit, onToggle: (Boolean) -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = row.name,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${row.version} · ${row.runtimeLabel}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = row.enabled, onCheckedChange = onToggle)
-            }
-
-            row.description?.let {
+    PbCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
+                    text = row.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-            }
-
-            if (row.isBroken) {
-                IssueLine("这个插件的清单现在解析不了，它提供的工具已经不可用。点进去看原因。", error = true)
-            }
-            if (row.toolCount > 0) {
                 Text(
-                    text = "提供 ${row.toolCount} 个工具",
+                    text = "${row.version} · ${row.runtimeLabel}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            row.notices.forEach { IssueLine(it, error = true) }
-            row.warnings.forEach { IssueLine(it, error = false) }
+            Switch(checked = row.enabled, onCheckedChange = onToggle)
+        }
 
-            Spacer(Modifier.height(4.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onOpen) { Text("详情与设置") }
-            }
+        row.description?.let {
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (row.isBroken) {
+            Spacer(Modifier.height(Space.xs))
+            IssueLine("这个插件的清单现在解析不了，它提供的工具已经不可用。点进去看原因。", error = true)
+        }
+        if (row.toolCount > 0) {
+            Spacer(Modifier.height(Space.xs))
+            Text(
+                text = "提供 ${row.toolCount} 个工具",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        row.notices.forEach {
+            Spacer(Modifier.height(Space.xs))
+            IssueLine(it, error = true)
+        }
+        row.warnings.forEach {
+            Spacer(Modifier.height(Space.xs))
+            IssueLine(it, error = false)
+        }
+
+        Spacer(Modifier.height(Space.xs))
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+            TextButton(onClick = onOpen) { Text("详情与设置") }
         }
     }
 }
 
+/**
+ * 一行问题说明。
+ *
+ * `error = true` 时**画一个警告图标**而不是打一个 `⚠️`（见文件头的说明）。
+ * 图标是 `Icon`，所以它跟着 `contentColor` 走 —— 换主题、换深浅色都自动对。
+ */
 @Composable
 private fun IssueLine(text: String, error: Boolean) {
-    Text(
-        text = if (error) "⚠️ $text" else "· $text",
-        style = MaterialTheme.typography.labelSmall,
-        color = if (error) {
+    val color =
+        if (error) {
             MaterialTheme.colorScheme.error
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
-        },
-    )
+        }
+    Row(verticalAlignment = Alignment.Top) {
+        if (error) {
+            Icon(
+                PbIcons.Warning,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(12.dp),
+            )
+            Spacer(Modifier.width(Space.xs))
+        } else {
+            Text(text = "·", style = MaterialTheme.typography.labelSmall, color = color)
+            Spacer(Modifier.width(Space.xs))
+        }
+        Text(text = text, style = MaterialTheme.typography.labelSmall, color = color)
+    }
 }

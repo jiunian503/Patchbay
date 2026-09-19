@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbTopBar
 
 /** 添加 / 编辑服务商。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -52,9 +53,9 @@ fun ProviderEditScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (state.isNew) "添加服务商" else "编辑服务商") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+            PbTopBar(
+                title = if (state.isNew) "添加服务商" else "编辑服务商",
+                onBack = onBack,
             )
         },
     ) { padding ->
