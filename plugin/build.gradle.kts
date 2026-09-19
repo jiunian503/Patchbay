@@ -22,6 +22,8 @@
 //
 // 但两者对外的类型是**同一个** `Tool` / `ToolDefinition` —— 这是刻意的：
 // 插件工具和内置工具在引擎看来完全一样，不存在「内置走特权路径」。
+import org.gradle.api.tasks.PathSensitivity
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -50,4 +52,27 @@ dependencies {
     // 测试夹具要用主源码集里的类型（PluginManifest / PluginSettings），
     // 所以 test 源码集必须能看见 testFixtures
     testImplementation(testFixtures(project(":plugin")))
+}
+
+tasks.test {
+    // 把 schema 文件的路径告诉 JVM 单测。
+    //
+    // `ManifestModelTest` 要读 `manifest.schema.json`，拿它和 Kotlin 模型
+    // 逐字段比对。用系统属性传路径，比让测试去猜工作目录可靠 ——
+    // 猜错了会以「文件不存在」的形式失败，看起来像 schema 丢了，
+    // 而真正要证明的是「schema 和模型一致」，它自己先走错路就没有说服力。
+    // （:app 那边的 assets / examples 也是这么传的，见 app/build.gradle.kts）
+    systemProperty("aichat.schemaFile", "$projectDir/manifest.schema.json")
+
+    // **把 schema 声明成测试任务的输入。**
+    //
+    // 这条不能省：Gradle 只看测试任务的声明输入（源码、classpath），
+    // 而这里读的是一个普通文件。只改 schema、不改测试源码时，任务会被判
+    // UP-TO-DATE 而**整个跳过** —— 于是「schema 和模型漂移了」这个唯一要抓的
+    // 场景，会以「测试通过」的形式安静地失效。那比没有测试更糟，因为它是绿的。
+    //
+    // RELATIVE 而不是默认的 ABSOLUTE：换机器、换 checkout 目录不该触发重跑，
+    // 文件内容变了才该。
+    inputs.file("$projectDir/manifest.schema.json")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
 }

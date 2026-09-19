@@ -30,6 +30,11 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * `additionalProperties: false`）。要加字段就得同时改 schema 和这里的模型，
  * 那是应该付的成本 —— 它是给第三方写的东西，契约越明确越好。
  *
+ * 「schema 和模型一致」这句话由 `ManifestModelTest` 守着（字段名、必填、
+ * 封闭性三样都比对）。在那条测试之前它只是一句承诺 —— 而 schema 当时确实
+ * 漏了八处封闭性声明和一处必填，也就是**作者拿 schema 校验会通过、
+ * 然后被这里打回**。
+ *
  * ## 校验分两层
  *
  * 1. **结构**：字段类型、必填、未知键 —— 交给 kotlinx.serialization

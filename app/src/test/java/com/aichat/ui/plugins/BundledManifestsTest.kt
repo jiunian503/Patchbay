@@ -143,8 +143,8 @@ class BundledManifestsTest {
      * 而两份文件就在同一个仓库里，同时改的成本几乎为零。
      *
      * 代价是参考版不能加 JSON 里本来没有的东西（注释、示例字段）。这个代价
-     * 划算：格式说明在 `plugin/examples/manifest.schema.json`，不该靠某一份
-     * 示例文件兼职。
+     * 划算：格式说明在 `plugin/manifest.schema.json`（它和 Kotlin 模型的一致性
+     * 由 `ManifestModelTest` 守着），不该靠某一份示例文件兼职。
      *
      * ## 方向是单向的：只要求 assets ⊆ examples
      *
