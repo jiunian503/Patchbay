@@ -21,7 +21,27 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 开混淆。实测三档（同一个 commit）：
+            //
+            //   debug                      36,410,283
+            //   release 不混淆              25,706,839
+            //   release 开混淆               3,997,760   ← 比 debug 小 89%
+            //
+            // 敢开，是因为 R8 最大的风险源在本项目不存在：**零反射**（全仓库没有
+            // Class.forName / getDeclaredField / javaClass / newInstance，也没引
+            // kotlin-reflect），而用到的库（kotlinx.serialization、Room、OkHttp、
+            // Compose、Navigation3）都自带 consumer rules。
+            //
+            // 真机验过（release APK 拿 debug key 签了再装）：会话数据保留、插件页
+            // 解析出 2 个插件（MCP + 声明式）、设置页的密钥标记还在（KeyStore 解密
+            // 正常）、发一条消息走完流式 + 工具循环（模型看到全部 11 个工具）。
+            // R8 也没生成 missing_rules.txt —— 它没发现「被反射用到但没 keep」的东西。
+            //
+            // **mapping.txt 必须归档**（app/build/outputs/mapping/release/mapping.txt，
+            // 约 42 MB）：混淆后的崩溃堆栈要靠它还原，而且它只对那一版 APK 有效 ——
+            // 丢了就永远读不懂那一版的线上崩溃。它现在被 .gitignore 的 `build/` 挡在
+            // 仓库外（对的，42 MB 不该入库），所以发布流程里要有「归档 mapping」这一步。
+            isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
