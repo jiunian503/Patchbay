@@ -13,7 +13,8 @@ import androidx.compose.ui.unit.dp
  * 配上一圈柔和的阴影，观感是「气泡、糖果」。
  *
  * 这个 App 借的是**设备面板**的语言：一块面板的角是收着的，不是鼓起来的。
- * 所以整体压一档到 6 / 10 / 14 / 18 / 22 —— 仍然是圆角，但克制。
+ * 所以整体压一档到 10 / 10 / 14 / 18 / 22（`extraSmall` 与 `small` 同值，见下）——
+ * 仍然是圆角，但克制。
  *
  * 另外原来各处的圆角是**硬编码**的（气泡 14dp、思考块 10dp、工具 chip 8dp），
  * 各写各的、以后必然漂移。现在统一走这里，改一处全变。
@@ -35,15 +36,31 @@ import androidx.compose.ui.unit.dp
  * `PbOutlinedButton`（都在 `ui/common/PbButton.kt`）：默认参数里定死一次，
  * 14 个调用点只换名字。**以后加按钮用那三个，别直接用 Material 的。**
  *
- * ## 输入框：仍然是「写了没生效」
+ * ## 输入框：**读** `extraSmall`，16 处一行都不用改（第三十五轮更正）
  *
- * `OutlinedTextField` 走 `OutlinedTextFieldDefaults.shape`，也不读 `Shapes`。
- * 全 App 16 处都没有显式传过 `shape`，所以它们仍是 Material 的默认圆角，
- * 和这套「设备面板」的收角语言不是一套。**这一半还没做** —— 但按钮那套
- * 收口办法可以直接照搬（包一个 `PbTextField`）。
+ * 第三十四轮我把上面那句「M3 的控件不读 `Shapes`」**顺手也套在了输入框上 —— 那是错的**。
  *
- * 这两档本身没白留：思考块、工具 chip、失败块在用 `small`，服务商列表的状态
- * 标签在用 `extraSmall`。
+ * `OutlinedTextField` 的 `shape` 默认值链是：
+ * `OutlinedTextFieldDefaults.shape` → `TextFieldDefaults.shape` →
+ * `FilledTextFieldTokens.ContainerShape` → **`MaterialTheme.shapes.extraSmall`**。
+ * 也就是说这一档从写下那天起就是生效的，全 App 16 处 `OutlinedTextField`
+ * 都在读它 —— 只是当时值是 6dp，和 M3 默认的 4dp 很接近，肉眼看不出来。
+ *
+ * **怎么验的（这招比读库源码快，值得记住）**：把 `extraSmall` 临时改成 `40.dp`，
+ * 编译装机，截一张「输入框和按钮并排」的页面 —— 输入框立刻变成**药丸**，
+ * 而紧挨着的按钮纹丝不动（它走 `small`）。**一个实验同时验两件事。**
+ *
+ * 于是把 `extraSmall` 从 6dp 提到 **10dp**（和按钮同值），16 处输入框
+ * **零代码改动**跟着变。
+ *
+ * ## 教训
+ *
+ * 「某个控件读不读主题 token」**不能靠记忆**。M3 里按钮不读、输入框读 ——
+ * 两者在源码里长得几乎一样（都是 `XxxDefaults.shape`），但一个指向常量、
+ * 一个指向 token。**要判断就把 token 改成夸张的值看一眼**，别猜。
+ *
+ * 这两档本身没白留：思考块、工具 chip、失败块在用 `small`；输入框、服务商列表
+ * 的状态标签、抽屉的选中竖条在用 `extraSmall`。
  *
  * ## 另有 5 处硬编码绕过了这里（2 处是有意的）
  *
@@ -56,7 +73,9 @@ import androidx.compose.ui.unit.dp
  */
 val Shapes =
   Shapes(
-    extraSmall = RoundedCornerShape(6.dp), // 输入框、小标签
+    // extraSmall 与 small **刻意同值**：输入框和按钮在同一行里并排出现
+    // （搜索栏、聊天输入栏、插件安装页），半径不同会看起来像没对齐。
+    extraSmall = RoundedCornerShape(10.dp), // 输入框、状态标签、抽屉选中条
     small = RoundedCornerShape(10.dp), // 按钮（经 PbButton）、chip、思考块
     medium = RoundedCornerShape(14.dp), // 卡片
     large = RoundedCornerShape(18.dp), // 气泡、FAB

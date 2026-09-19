@@ -18,6 +18,12 @@ import androidx.compose.ui.Modifier
  * `ButtonDefaults.shape`，也就是**胶囊**（两端全圆）。所以光在 `theme/Shape.kt`
  * 里把 `small` 改成 10dp 是一点用都没有的，全 App 的按钮不会有任何变化。
  *
+ * ⚠️ **别把这条推广到所有控件上。** `OutlinedTextField` 就**读**
+ * `MaterialTheme.shapes.extraSmall`（第三十五轮实测：把那一档改成 40dp，
+ * 输入框立刻变成药丸）。两者在 M3 源码里长得几乎一样（都是 `XxxDefaults.shape`），
+ * 但一个指向常量、一个指向 token —— **从代码上看不出来，只能实验**。
+ * 详见 `theme/Shape.kt` 的注释。
+ *
  * 形状只能**在每个调用点显式传**。实测（第三十四轮之前）：全 App 14 个有底色
  * 的按钮里**只有 1 个**传了 `shape`（抽屉里的「新建对话」），剩下 13 个是胶囊。
  * 于是同一个抽屉里，「新建对话」是 10dp 圆角、它上面那个图标按钮是圆形、别的

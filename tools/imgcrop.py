@@ -39,6 +39,19 @@ def main() -> int:
     w = min(w, im.size[0] - x)
     h = min(h, im.size[1] - y)
 
+    # 裁框超出图片时**明确报错**，别把空图交给 resize。
+    # 这个分支是实战踩出来的：模拟器会跟着重力感应自己转屏，上一张还是
+    # 1080x1920、这一张就变成 1920x1080，于是按竖屏算的 y=1780 直接超界，
+    # 报出来的是 `ValueError: height and width must be > 0` —— 看着像 PIL 的
+    # 毛病，其实是「方向变了」。所以这里把两边尺寸都打出来。
+    if w <= 0 or h <= 0:
+        print(
+            f"!! 裁框超界：图是 {im.size[0]}x{im.size[1]}，框是 {a.box}\n"
+            f"   （屏幕方向变了？竖屏 1080x1920 / 横屏 1920x1080）",
+            file=sys.stderr,
+        )
+        return 2
+
     im = im.crop((x, y, x + w, y + h))
     if a.scale != 1:
         im = im.resize((im.size[0] * a.scale, im.size[1] * a.scale), Image.NEAREST)
