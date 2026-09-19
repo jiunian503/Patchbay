@@ -19,17 +19,37 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  * 所以这里只提供**协议适配**：把三种常见后端的响应归一成同一种结果。
  * 地址和密钥都是用户填的，和填对话服务商是同一件事。
  *
- * ## 三种后端的取舍
+ * ## 四个后端：一个内置，三个要配
  *
+ * - [BING_HTML]：**内置，零配置**。直接抓 `cn.bing.com` 的结果页 HTML。
  * - [SEARXNG]：**自托管 / 公共实例**。不需要密钥（或实例自己定），没有配额，
  *   但需要实例在 `settings.yml` 里打开 json 格式 —— 实测公共实例基本都关掉了它
- *   或者挡在人机验证后面，所以这条路实际上等于「自己部署一个」。声明顺序排在
- *   第一位只是历史原因，**界面上它排在最后**（见 `WebSearchSettingsScreen`）。
+ *   或者挡在人机验证后面，所以这条路实际上等于「自己部署一个」。**界面上它排在最后**。
  * - [BRAVE]：有免费额度，结果质量稳定，接口最简单（一个 GET）。
  * - [TAVILY]：为 LLM 设计的搜索，摘要更长更整齐，但是 POST + Bearer。
+ *
+ * ## 为什么需要一个「内置」后端
+ *
+ * 另外三个都要用户先配（填地址、注册 Key）才能用。于是「刚装好 App 的用户问一句
+ * 『今天有什么新闻』」的结果是：`search_web` **根本不在工具列表里**，模型既没有
+ * 搜索能力、也不知道 App 里有这个功能 —— 它只会说「我无法联网」，或者凭记忆编。
+ *
+ * **那不是「第一次试就失败」，是「第一次试根本不存在」** —— 用户永远发现不了
+ * 设置页里那一项。
+ *
+ * [BING_HTML] 把这条路径补上：不用配就能搜。配了 Brave / Tavily 就用那些，
+ * 它们的结果质量更好。内置这条**随时可能因为对方改版而失效** —— 那是抓 HTML
+ * 的固有代价，所以 `SearchWebTool` 里「页面结构变了」和「真的没搜到」必须
+ * 分开报（前者要用户去换后端，后者要模型换关键词，动作完全相反）。
+ *
+ * ## 声明顺序
+ *
+ * [BING_HTML] 放第一位，因为它最可能「第一次试就能成」（零配置）。
+ * 界面上的顺序另有一套判据，见 `WebSearchSettingsScreen`。
  */
 enum class WebSearchBackend(val id: String, val label: String) {
 
+    BING_HTML("bing", "Bing（内置）"),
     SEARXNG("searxng", "SearXNG"),
     BRAVE("brave", "Brave Search"),
     TAVILY("tavily", "Tavily");
@@ -48,7 +68,11 @@ enum class WebSearchBackend(val id: String, val label: String) {
 /**
  * 一次搜索要用的全部信息。由 `:app` 从「设置 + KeyStore」拼出来。
  *
- * [apiKey] 为 null 表示没配。SearXNG 通常不需要；Brave 和 Tavily 必需。
+ * [apiKey] 为 null 表示没配。内置的 [WebSearchBackend.BING_HTML] 和 SearXNG
+ * 通常不需要；Brave 和 Tavily 必需。
+ *
+ * [endpoint] 对内置后端**可以是空串** —— [resolveEndpoint] 会回落到
+ * [defaultEndpoint] 里那个固定地址。
  */
 data class WebSearchConfig(
     val backend: WebSearchBackend,
@@ -93,11 +117,20 @@ interface WebSearchSource {
 /**
  * 后端的默认接口地址。
  *
+ * [WebSearchBackend.BING_HTML] 是**唯一一个真的有默认值的** —— 它是内置后端，
+ * 地址本来就是 App 定的。用 `cn.bing.com` 而不是 `www.bing.com`：前者是必应的
+ * 中国版、**在国内可达**，而且结果页结构一样（这是这个后端能成立的前提，
+ * 见 `SearchWebTool` 里的 HTML 解析）。
+ *
+ * 用户仍然可以在设置里覆盖它 —— 境外用户想用国际版、或者 `cn.bing.com`
+ * 在某个网络里不通时，那是一条退路。
+ *
  * SearXNG **刻意留空**：它没有公共默认实例。给一个「示例地址」当默认值的话，
  * 用户很可能直接用它 —— 而公共实例随时会挂、会限流、会关掉 json 格式，
  * 到时候表现为「搜索时好时坏」，极难归因。宁可让用户自己去挑一个。
  */
 fun defaultEndpoint(backend: WebSearchBackend): String = when (backend) {
+    WebSearchBackend.BING_HTML -> "https://cn.bing.com/search"
     WebSearchBackend.SEARXNG -> ""
     WebSearchBackend.BRAVE -> "https://api.search.brave.com/res/v1/web/search"
     WebSearchBackend.TAVILY -> "https://api.tavily.com/search"
@@ -142,6 +175,8 @@ fun WebSearchConfig.resolveEndpoint(): HttpUrl? {
 fun WebSearchConfig.isComplete(): Boolean {
     if (resolveEndpoint() == null) return false
     return when (backend) {
+        // 内置后端不需要任何配置 —— 这正是它存在的理由
+        WebSearchBackend.BING_HTML -> true
         // SearXNG 的实例可能要求 Basic Auth，但绝大多数不要求，
         // 所以密钥是可选的 —— 不能因为它为空就判定「没配好」
         WebSearchBackend.SEARXNG -> true

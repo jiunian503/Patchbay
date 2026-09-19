@@ -1,6 +1,7 @@
 package com.aichat.settings
 
 import android.content.Context
+import com.aichat.tools.WebSearchBackend
 
 /**
  * App 级的偏好设置。
@@ -82,16 +83,34 @@ class AppSettings(context: Context) {
     }
 
     /**
-     * 联网搜索用的后端 id。**空串表示关闭**。
+     * 联网搜索用的后端 id。**空串表示「用户主动关过」**。
      *
-     * 存的是后端自己的 id 字符串（`searxng` / `brave` / `tavily`），不是枚举名 ——
-     * 枚举改名不该让老设置失效，而且这里存的东西本来就要能被未来的版本读回来。
+     * 存的是后端自己的 id 字符串（`bing` / `searxng` / `brave` / `tavily`），
+     * 不是枚举名 —— 枚举改名不该让老设置失效，而且这里存的东西本来就要能
+     * 被未来的版本读回来。
+     *
+     * ## 「从没碰过」和「主动关闭」是两种状态
+     *
+     * 默认值是**内置后端**，所以全新安装打开 App 就能直接搜 —— 这是那个
+     * 后端存在的全部理由（见 `WebSearchBackend.BING_HTML` 的 KDoc）。
+     *
+     * 代价是这个字段有了两种「空」的语义，而 `SharedPreferences` 只有
+     * 「key 不存在」和「key = 某值」两种。于是：
+     *
+     * - **key 不存在** → 默认值（Bing）→ 工具注册，装上就能用
+     * - **key 存在且是空串** → 用户主动关过 → 工具不注册，别自作主张打开
+     *
+     * 因此 [setWebSearchBackend] 的调用方**必须继续写空串**，不能改成
+     * `remove()` —— 那会把两种状态合并成一种，用户关掉的搜索会在下次启动时
+     * 自己打开（`AppContainer.saveWebSearch` 里写的是 `backend?.id.orEmpty()`，
+     * 那个 `orEmpty()` 是有意的）。
      *
      * 地址和密钥为什么不一起放这儿：地址是「用户填的一个字符串」，放这儿没问题；
      * **密钥必须走 [com.aichat.domain.secret.SecretStore]**，和对话服务商的 Key
      * 同一套规矩（见 `AndroidKeystoreSecretStore` 的 KDoc）。
      */
-    fun webSearchBackend(): String = prefs.getString(KEY_WEB_SEARCH_BACKEND, "").orEmpty()
+    fun webSearchBackend(): String =
+        prefs.getString(KEY_WEB_SEARCH_BACKEND, WebSearchBackend.BING_HTML.id).orEmpty()
 
     fun setWebSearchBackend(id: String) {
         prefs.edit().putString(KEY_WEB_SEARCH_BACKEND, id).apply()

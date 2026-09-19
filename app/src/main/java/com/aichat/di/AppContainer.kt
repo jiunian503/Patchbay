@@ -223,10 +223,16 @@ class AppContainer(context: Context) : ChatDeps {
         settings.setWebSearchBackend(backend?.id.orEmpty())
         settings.setWebSearchEndpoint(endpoint.trim())
 
-        when {
-            apiKey == null -> Unit
-            apiKey.isBlank() -> secrets.remove(SettingsWebSearchSource.API_KEY_ALIAS)
-            else -> secrets.put(SettingsWebSearchSource.API_KEY_ALIAS, apiKey)
+        // 密钥按后端分开存（理由见 SettingsWebSearchSource 的 KDoc）。
+        // backend 为 null（关闭）时不动任何密钥 —— 那把密钥还属于它的后端，
+        // 用户下次开回来时应该还在
+        if (backend != null) {
+            val alias = SettingsWebSearchSource.alias(backend)
+            when {
+                apiKey == null -> Unit
+                apiKey.isBlank() -> secrets.remove(alias)
+                else -> secrets.put(alias, apiKey)
+            }
         }
 
         tools.refresh()

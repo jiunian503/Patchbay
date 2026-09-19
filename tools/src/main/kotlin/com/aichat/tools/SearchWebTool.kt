@@ -74,6 +74,21 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * 条数（[MAX_RESULTS]）、单条摘要（[MAX_SNIPPET_CHARS]）、总字符（[MAX_CHARS]）。
  * 只限总字符不够：一条 8000 字的摘要会把后面九条全挤掉，而那九条里可能
  * 才有答案。只限条数也不够：Tavily 的摘要天生就长。
+ *
+ * ## 两种响应格式，两条解析路径
+ *
+ * [WebSearchBackend.BING_HTML]（内置、零配置）返回的是**结果页 HTML**，
+ * 另外三个返回 JSON。所以 [execute] 在解析处分叉：JSON 那条走
+ * [parseRoot] + [parse]，HTML 那条走 [parseBingHtml]。
+ *
+ * 两条路径的「失败」语义**不一样**，不能共用一套提示：
+ *
+ * - JSON 路径「解析不出」= 配置问题（实例关了 json 输出、或者地址填错了）
+ * - HTML 路径「解析不出」= **对方改版了、或者把我们当爬虫挡了** ——
+ *   用户没有配置可查，他改不了对方
+ *
+ * 所以后者单独走 [structureChangedMessage]，第一句话就是「和你的配置无关」，
+ * 免得用户去设置页反复检查一个根本不存在的地址 / 密钥。
  */
 class SearchWebTool(
     private val source: WebSearchSource,
@@ -151,10 +166,17 @@ class SearchWebTool(
                 // 前者是配置问题（实例关掉了 json 输出、或者前面挡了一层人机验证），
                 // 后者是「网上确实没搜到」。都报「没有结果」的话，用户会去改关键词，
                 // 而真正该做的是换一个实例 —— 方向完全错了。
-                val root = parseRoot(body)
-                    ?: return@use ToolResult.error(notJsonMessage(config, body))
-
-                val hits = parse(config.backend, root)
+                //
+                // 内置的 BING_HTML 走另一条路：它返回的**本来就是 HTML**，
+                // 所以那里「解不出结果」意味着别的东西（见 parseBingHtml）
+                val hits = if (config.backend == WebSearchBackend.BING_HTML) {
+                    parseBingHtml(body)
+                        ?: return@use ToolResult.error(structureChangedMessage(config))
+                } else {
+                    val root = parseRoot(body)
+                        ?: return@use ToolResult.error(notJsonMessage(config, body))
+                    parse(config.backend, root)
+                }
                 if (hits.isEmpty()) {
                     return@use ToolResult.ok(
                         "搜索「$query」没有返回任何结果（${config.backend.label}）。" +
@@ -192,6 +214,17 @@ class SearchWebTool(
         val base = Request.Builder().header("User-Agent", USER_AGENT).header("Accept", "application/json")
 
         return when (config.backend) {
+            // 内置后端抓的是**结果页 HTML**，所以刻意不继承上面那个
+            // `Accept: application/json` —— 那等于告诉对方「给我 JSON」，
+            // 而这里要的恰恰是 HTML。也不需要任何密钥
+            WebSearchBackend.BING_HTML ->
+                Request.Builder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml")
+                    .url(endpoint.newBuilder().addQueryParameter("q", query).build())
+                    .get()
+                    .build()
+
             WebSearchBackend.SEARXNG ->
                 base.url(
                     endpoint.newBuilder()
@@ -235,9 +268,24 @@ class SearchWebTool(
      *
      * 光说「HTTP 403」模型只会换个说法重试同一个请求，而这三类失败
      * 重试一万次结果都一样 —— 所以每一条都要指明「这不是重试能解决的」。
+     *
+     * 内置后端（[WebSearchBackend.BING_HTML]）整个跳过这张表：它没有密钥、
+     * 没有配额，失败只可能是「对方那边变了」（见下）。
      */
     private fun httpError(config: WebSearchConfig, code: Int, message: String): ToolResult {
         val what = "搜索失败：HTTP $code ${message.ifBlank { "" }}".trim()
+
+        // 内置后端没有密钥、也没有配额 —— 它的失败**一定是**「对方那边变了」
+        // （被反爬挡了、或者接口改了），不是用户的配置问题。
+        // 所以建议只有一条：换后端。说「去检查密钥」会把用户引到错的地方
+        if (config.backend == WebSearchBackend.BING_HTML) {
+            return ToolResult.error(
+                "$what。这是内置的免费后端，没有密钥或配额可查 —— " +
+                    "多半是必应把这次请求当成爬虫挡掉了。重试和换关键词都没有用，" +
+                    "告诉用户去「设置 → 联网搜索」换一个后端（Brave / Tavily 要自己注册 Key）。",
+            )
+        }
+
         val advice = when (code) {
             401 -> "${config.backend.label} 拒绝了密钥。这是配置问题，重试没有用 —— " +
                 "告诉用户去「设置 → 联网搜索」检查 API Key。"
@@ -289,9 +337,29 @@ class SearchWebTool(
             WebSearchBackend.BRAVE, WebSearchBackend.TAVILY ->
                 "多半是地址填错了（指到了别的接口）。重试没有用，" +
                     "告诉用户去「设置 → 联网搜索」检查地址。"
+            // 内置后端到不了这里：它的响应本来就是 HTML，由 parseBingHtml 处理。
+            // 留着这一支只是因为 when 要穷尽
+            WebSearchBackend.BING_HTML ->
+                "这是内置后端的问题，告诉用户去「设置 → 联网搜索」换一个后端。"
         }
         return "搜索失败：HTTP 200，但${detail}（${config.backend.label}）。$advice"
     }
+
+    /**
+     * 「内置后端拿到的不是结果页」。
+     *
+     * 和 [notJsonMessage] 是同一类问题的两个版本：都表示**对方那边变了**，
+     * 重试和换关键词都没有用。区别只在于内置后端没有配置项可查 ——
+     * 用户能做的只有换一个后端。
+     *
+     * 必须说清「和你的配置无关」：不然用户会去设置页反复检查一个根本不存在的
+     * 地址 / 密钥（这个后端不需要它们）。
+     */
+    private fun structureChangedMessage(config: WebSearchConfig): String =
+        "搜索失败：${config.backend.label} 返回的页面里找不到搜索结果" +
+            "（多半是被当成爬虫挡掉了，或者对方改版了）。" +
+            "这是内置后端的问题，和用户的配置无关，换关键词重试也没有用 —— " +
+            "告诉用户去「设置 → 联网搜索」换一个后端（Brave / Tavily 要自己注册 Key）。"
 
     /**
      * 三种后端的响应结构不一样，这里归一成同一种。
@@ -310,6 +378,9 @@ class SearchWebTool(
 
             // {"results":[{"title","url","content"}]}
             WebSearchBackend.TAVILY -> root.objects("results")
+
+            // 内置后端返回的是 HTML，走 parseBingHtml —— 到不了这里
+            WebSearchBackend.BING_HTML -> emptyList()
         }
 
         return raw
@@ -323,6 +394,89 @@ class SearchWebTool(
             }
             .filter { it.url.isNotBlank() }
             .take(MAX_RESULTS)
+    }
+
+    // ---------- 内置后端：从必应结果页的 HTML 里抠结果 ----------
+
+    /**
+     * 从必应结果页的 HTML 里抠出结果。**返回 null 表示「拿到的不是结果页」。**
+     *
+     * ## 为什么会有这条路径
+     *
+     * [WebSearchBackend.BING_HTML] 是唯一的零配置后端 —— 另外三个都要用户先填
+     * 地址、注册 Key。没有它，「刚装好 App 的用户问一句『今天有什么新闻』」
+     * 的结果是工具**根本不在列表里**（见 `WebSearchBackend.BING_HTML` 的 KDoc）。
+     *
+     * 代价是它**随时可能因为对方改版而失效**，所以这个函数的返回值必须让
+     * 「页面变了」和「真的没搜到」分开：
+     *
+     * | 返回 | 含义 | 该告诉模型做什么 |
+     * |---|---|---|
+     * | `null` | 拿到的**不是结果页** —— 被反爬挡了、或者对方改版了 | 换后端，**不要重试** |
+     * | 空列表 | 是结果页，但这次查询确实没结果 | 换关键词 |
+     * | 非空 | 正常 | —— |
+     *
+     * 把前两者混成一个「没搜到」，是这类解析最典型的错：用户会一直换关键词，
+     * 而真正该做的是换个后端。
+     *
+     * ## 为什么是必应中国版
+     *
+     * 两条：**国内可达**（DuckDuckGo 在国内通常打不开 —— Operit 也因此选了
+     * Bing / 百度 / 搜狗 / 夸克），以及**结果链接是直接的**：`href` 就是落地
+     * 网址，不是 `/link?url=` 那种跳转包装。后者很关键 —— 跳转包装要真的访问
+     * 一次才能拿到落地地址，6 条结果就是 6 个额外请求。
+     *
+     * 对照：Operit 抓百度 / 搜狗时必须靠它自己的浏览器会话逐条「点」链接
+     * （`Tools.Net.visit({visit_key, link_number})`），那套基建我们没有。
+     *
+     * ## 用的是字符串切分，不是 HTML 解析器
+     *
+     * `:tools` 必须保持纯 JVM（不能 `import android.text.Html`），而引入一个
+     * HTML 解析库只为这一个后端不划算。正则在这里够用，因为必应的结果块
+     * 结构是稳定的（`<li class="b_algo">` + `<h2>` + `b_caption`）——
+     * 不稳定的话本来就是「结构变了」，那时返回 null 交给用户换后端。
+     */
+    private fun parseBingHtml(body: String): List<WebHit>? {
+        // 结果列表的容器都不在 → 拿到的不是结果页。
+        // 这一步**先做**，是为了把「页面结构变了」和「真的没搜到」分开：
+        // 后者仍然带着 b_results 这个容器（只是里面没有 b_algo）
+        if (!body.contains(RESULTS_MARKER)) return null
+
+        return BING_ALGO.split(body)
+            .drop(1)  // 第 0 段是 <ol id="b_results"> 之前的页面头
+            .mapNotNull { parseBingBlock(it.substringBefore("</li>").take(BLOCK_LIMIT)) }
+            .take(MAX_RESULTS)
+    }
+
+    /**
+     * 解析单条结果。**标题或网址缺一个就丢弃** —— 缺网址的条目给模型也没用
+     * （它没法把网址交给 `fetch_url`）。
+     *
+     * 网址有三级回退，因为必应把标题链接放在 `<h2>` 里面还是外面**变过**：
+     * 实测中国版是 `<a href="..."><h2>标题</h2></a>`，但历史上出现过
+     * `<h2><a href="...">标题</a></h2>`。最后一级退到「块里第一个外部链接」——
+     * 那通常是来源站的图标链接，`href` 也是真实网址。
+     */
+    private fun parseBingBlock(block: String): WebHit? {
+        val url = BING_LINK_AROUND_H2.find(block)?.groupValues?.get(1)
+            ?: BING_LINK_IN_H2.find(block)?.groupValues?.get(1)
+            ?: ANY_EXTERNAL_HREF.findAll(block)
+                .map { it.groupValues[1] }
+                .firstOrNull { !BING_OWN_HOST.containsMatchIn(it) }
+            ?: return null
+
+        val title = BING_TITLE.find(block)?.groupValues?.get(1).orEmpty()
+        val snippet = BING_CAPTION.find(block)?.groupValues?.get(1).orEmpty()
+
+        return WebHit(
+            // 标题里必有 `<strong>`（必应把命中的词包起来），要过 stripHtml
+            title = FetchUrlTool.stripHtml(title).clean(),
+            // 网址也要过一遍：结果里的 `&` 是以 `&amp;` 写着的，
+            // 不解码的话模型拿到的网址是坏的（交给 fetch_url 会 404）。
+            // `stripHtml` 顺带做实体解码，复用它而不是再写一份
+            url = FetchUrlTool.stripHtml(url).trim(),
+            snippet = FetchUrlTool.stripHtml(snippet).clean(),
+        )
     }
 
     /**
@@ -411,6 +565,54 @@ class SearchWebTool(
          * 带超长查询串的网址就可能很长。
          */
         const val MAX_CHARS = 4_000
+
+        // ---------- 内置后端（必应结果页）用的标记与正则 ----------
+
+        /**
+         * 结果列表的容器 id。**它的有无 = 「这是不是结果页」** ——
+         * 见 [parseBingHtml] 为什么要先查它
+         */
+        private const val RESULTS_MARKER = "id=\"b_results\""
+
+        /**
+         * 单条结果最多看多少字符。
+         *
+         * 必应把样式表内联在结果块里（实测一个块能到几 KB），不封顶的话
+         * 正则要在大段 CSS 上跑 —— 白花时间，回溯风险也高
+         */
+        private const val BLOCK_LIMIT = 20_000
+
+        /**
+         * 每条结果的开始。
+         *
+         * 刻意**不写死** `class="b_algo"`：class 里可能还有别的
+         * （`b_algo b_algoBigWiki`），写死的话必应加一个修饰类就全军覆没。
+         * 用词边界匹配、且一直吃到 `>`，中间不管有几个属性
+         */
+        private val BING_ALGO = Regex("""<li\s[^>]*\bb_algo\b[^>]*>""")
+
+        /** `<a href="..."><h2>` —— 实测必应中国版是这个形态。 */
+        private val BING_LINK_AROUND_H2 = Regex("""<a[^>]*href="([^"]+)"[^>]*>\s*<h2""")
+
+        /** `<h2><a href="...">` —— 历史形态，留作保险。 */
+        private val BING_LINK_IN_H2 = Regex("""<h2[^>]*>\s*<a[^>]*href="([^"]+)"""")
+
+        /** 标题。必应会把命中的词包在 `<strong>` 里，所以拿到后还要过 `stripHtml`。 */
+        private val BING_TITLE = Regex("""<h2[^>]*>(.*?)</h2>""", RegexOption.DOT_MATCHES_ALL)
+
+        /** 摘要。 */
+        private val BING_CAPTION =
+            Regex("""class="b_caption"[^>]*>\s*<p[^>]*>(.*?)</p>""", RegexOption.DOT_MATCHES_ALL)
+
+        /** 任意绝对链接，网址回退的第三级用。 */
+        private val ANY_EXTERNAL_HREF = Regex("""href="(https?://[^"]+)"""")
+
+        /**
+         * 必应自己的域名。结果块里混着指向它们自己的链接（图标代理、站内跳转、
+         * 分享），回退那一级要把这些滤掉
+         */
+        private val BING_OWN_HOST =
+            Regex("""https?://([^/]*\.)?(bing|microsoft|msn|live)\.com""")
 
         private const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android) Patchbay/1.0 (+local BYOK client)"

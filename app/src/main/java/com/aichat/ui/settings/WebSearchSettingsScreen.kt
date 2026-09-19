@@ -58,18 +58,25 @@ import com.aichat.ui.common.PbSectionLabel
  * 3. **怎么知道自己配对了** —— 「测试」按钮。BYOK 的配置错误有九成是
  *    地址多一个斜杠、密钥少一位，而这两种错在保存时都看不出来。
  *
- * ## 为什么后端选项要带一段说明，而且 Brave 排在最前面
+ * ## 为什么后端选项要带一段说明，以及这个顺序是怎么来的
  *
- * 「SearXNG / Brave / Tavily」对没接触过的人来说是三个无意义的词。
+ * 「Bing（内置）/ Brave / Tavily / SearXNG」对没接触过的人来说是几个无意义的词。
  * 每行下面那句是**选它的理由**，不是它的定义 —— 用户是按理由选的，
  * 不是按名字选的。
  *
  * 顺序按「第一次试就能成」的概率排，而不是按「技术上更纯粹」排：
  *
+ * - **Bing（内置）** 零配置，装上就能用。排第一是因为它最可能「第一次试就能成」，
+ *   而且它也是 [AppSettings] 里那个默认值 —— 新用户第一次进这一页，
+ *   光标停的位置和他要选的那一项是同一个。
  * - **Brave / Tavily** 要注册，但注册完就一定能用。
  * - **SearXNG** 不用注册，可是**公共实例基本都不能用** —— 实测了一圈，
  *   要么关掉了 json 输出格式（返回 HTML 搜索页），要么挡在一层人机验证
  *   后面（Anubis 那类），要么直接 429。所以它实际上意味着「自己部署一个」。
+ *
+ * 「关闭」放**最后**。它不是「一个后端」，是这一页的退出动作；夹在四个后端中间
+ * 会让人在挑后端的时候先读到一项「不要挑」。放最后还有一个作用：一进页面，
+ * 第一眼落在的是「Bing（内置）」，也就是最该被选的那个。
  *
  * 一个功能如果第一次试就失败，用户不会再试第二次 —— 所以把最可能成的
  * 放前面，把「要自己搭」的放最后，并在它的说明里直说这件事。
@@ -124,17 +131,18 @@ fun WebSearchSettingsScreen(
 
             item {
                 BackendOption(
-                    title = "关闭",
-                    body = "模型只能靠自己的知识回答，遇到不知道的会说不知道。",
-                    selected = state.backend == null,
-                    onClick = { viewModel.selectBackend(null) },
+                    title = "Bing（内置）",
+                    body = "不用配置，装上就能用。直接抓必应的结果页，" +
+                        "所以随时可能因为对方改版而失效 —— 真失效了就换下面任意一个。",
+                    selected = state.backend == WebSearchBackend.BING_HTML,
+                    onClick = { viewModel.selectBackend(WebSearchBackend.BING_HTML) },
                 )
             }
             item {
                 BackendOption(
                     title = "Brave Search",
                     body = "有免费额度，结果稳定，接口最简单。到 Brave 的控制台申请一个 token " +
-                        "就能用，是三个里最省事的。",
+                        "就能用，是要注册的那两个里最省事的。",
                     selected = state.backend == WebSearchBackend.BRAVE,
                     onClick = { viewModel.selectBackend(WebSearchBackend.BRAVE) },
                 )
@@ -158,6 +166,14 @@ fun WebSearchSettingsScreen(
                     onClick = { viewModel.selectBackend(WebSearchBackend.SEARXNG) },
                 )
             }
+            item {
+                BackendOption(
+                    title = "关闭",
+                    body = "模型只能靠自己的知识回答，遇到不知道的会说不知道。",
+                    selected = state.backend == null,
+                    onClick = { viewModel.selectBackend(null) },
+                )
+            }
 
             val backend = state.backend
             if (backend != null) {
@@ -170,15 +186,25 @@ fun WebSearchSettingsScreen(
                     )
                 }
 
-                item { PbSectionLabel("API Key") }
-                item {
-                    KeyField(
-                        value = state.apiKeyInput,
-                        backend = backend,
-                        configured = state.keyConfigured && !state.clearedKey,
-                        onChange = viewModel::onKeyChange,
-                        onClear = viewModel::clearKey,
-                    )
+                // 内置后端不需要密钥，整节都不显示。
+                //
+                // 不是「显示出来但标成可选」—— 这一节里带着「已保存一个密钥」
+                // 的提示，而内置后端**根本不会去读**那把密钥。让用户对着一个
+                // 填了也没用的输入框，比让他看不到更糟。
+                //
+                // SearXNG 那一项留着，是因为它的实例**可能**要 Basic Auth，
+                // 那把密钥是真会被发出去的
+                if (backend != WebSearchBackend.BING_HTML) {
+                    item { PbSectionLabel("API Key") }
+                    item {
+                        KeyField(
+                            value = state.apiKeyInput,
+                            backend = backend,
+                            configured = state.keyConfigured && !state.clearedKey,
+                            onChange = viewModel::onKeyChange,
+                            onClear = viewModel::clearKey,
+                        )
+                    }
                 }
 
                 state.testMessage?.let { message ->
@@ -317,6 +343,9 @@ private fun EndpointField(
     onChange: (String) -> Unit,
 ) {
     val hint = when (backend) {
+        WebSearchBackend.BING_HTML ->
+            "内置地址，一般不用改。cn.bing.com 在某个网络里不通的话，" +
+                "可以换成 www.bing.com。"
         WebSearchBackend.SEARXNG ->
             "填你用的那个实例的地址，例如 https://searx.be。" +
                 "不用自己写 /search，我们会补上。"
@@ -360,6 +389,9 @@ private fun KeyField(
     onClear: () -> Unit,
 ) {
     val hint = when (backend) {
+        // 界面上内置后端不显示这一节（见调用处），这个分支纯粹是为了穷尽性。
+        // 写一句实话而不是 `else`：哪天真的显示了，这句话也是对的
+        WebSearchBackend.BING_HTML -> "内置后端不需要密钥。"
         WebSearchBackend.SEARXNG -> "大多数公共实例不需要密钥。你的实例要求的话再填。"
         WebSearchBackend.BRAVE -> "在 Brave Search API 的控制台创建订阅后拿到的 token。"
         WebSearchBackend.TAVILY -> "以 tvly- 开头的 API Key。"

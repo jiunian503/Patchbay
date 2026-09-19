@@ -32,6 +32,7 @@ Room 写入 + 网络」这一整条链。
 | `fetch` | `fetch_url(本服务端的 /hello)` | **需要用户确认**的工具 → 弹框 |
 | `geo` | `geocode_city("Shanghai")` | **插件工具**（装了内置天气示例之后才有）→ 真发一次外网请求 |
 | `history` | `search_history("北京")` | **历史检索工具** → 真查一次设备本地数据库（Hermes 第三层记忆） |
+| `web` / `search` | `search_web("kotlin coroutines")` | **联网搜索** → 真出网抓一次 `cn.bing.com` 的结果页 |
 | `md` | 不调工具，直接回一大段 Markdown | 渲染效果验收（标题/代码/表格/列表/引用/行内格式） |
 | 其它 | `no_such_tool_zzz(...)` | **工具不存在**的错误路径 |
 
@@ -357,6 +358,16 @@ class Handler(BaseHTTPRequestHandler):
             # （写成 `AND` 会永远返回空，且不报错）。模型完全可能给多段 query，
             # 所以这条路径必须从工具入口一路验到 FTS。
             return "search_history", '{"query": "北京 适合"}'
+        if "web" in last_user or "search" in last_user:
+            # 联网搜索。这条路径和别的不一样：它**真的出网**（打到 cn.bing.com），
+            # 所以第二轮回显里出现的是从必应结果页里抠出来的**真实网址**。
+            # 一次就把两件事验掉：设备能出网、解析规则还和对方的页面结构对得上。
+            #
+            # 放在 `history` 之后：`search history` 会先命中上面那条。
+            #
+            # query 用英文，理由同 `geo` —— `input text` 打不了中文，
+            # 手敲复现时不该多一道题。
+            return "search_web", '{"query": "kotlin coroutines"}'
         # 默认给一个**不存在**的工具，用来演错误路径。
         #
         # 注意：装上天气插件之后 `get_weather` 就**存在**了 —— 这条

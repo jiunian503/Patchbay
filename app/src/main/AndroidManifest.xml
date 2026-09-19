@@ -9,9 +9,17 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      allowBackup 关掉。理由不是「省事」，是**开着反而更糟**：
+      AndroidKeyStore 里的主密钥不可导出、不参与备份，所以换机恢复之后，
+      aichat_secrets.xml 里那堆密文一把也解不开 —— AndroidKeystoreSecretStore
+      解不开时会删掉那条记录并返回 null（优雅降级，不崩）。于是用户看到的是
+      「会话在、服务商在、密钥全空」，发消息失败却没有任何地方提示要重填。
+      **「全都丢了」比「看起来都在、其实缺一块」好。**
+    -->
     <application
         android:name=".PatchbayApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

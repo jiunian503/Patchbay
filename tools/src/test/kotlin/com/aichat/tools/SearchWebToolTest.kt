@@ -75,6 +75,16 @@ class SearchWebToolTest {
         body = body,
     )
 
+    /** 内置后端：零配置，只要一个地址（真实运行时由 `defaultEndpoint` 提供）。 */
+    private fun bing() =
+        WebSearchConfig(WebSearchBackend.BING_HTML, server.url("/search").toString())
+
+    private fun html(body: String) = MockResponse(
+        code = 200,
+        headers = headersOf("Content-Type", "text/html; charset=utf-8"),
+        body = body,
+    )
+
     // ---------- SearXNG ----------
 
     @Test
@@ -639,6 +649,174 @@ class SearchWebToolTest {
 
         assertTrue(result.isError)
         assertTrue(result.content, result.content.contains("测试失败"))
+    }
+
+    // ---------- 内置后端（必应结果页 HTML） ----------
+
+    /**
+     * 一段贴近真实必应结果页的片段。
+     *
+     * 形态按实测的中国版写：标题链接是 `<a href="..."><h2>标题</h2></a>`
+     * （`<a>` 在外面，不是 `<h2>` 里面），而且 `<li>` 上除 `b_algo`
+     * 还有别的属性 —— 解析要是写死了 `class="b_algo"`，这里就该红。
+     */
+    private fun bingPage(vararg items: Triple<String, String, String>): String = buildString {
+        append("""<html><body><ol id="b_results">""")
+        items.forEach { (url, title, snippet) ->
+            append("""<li class="b_algo" data-id iid=SERP.1>""")
+            append("""<div class="b_tpcn"><a class="tilk" href="$url">icon</a></div>""")
+            append("""<a href="$url"><h2 class="">$title</h2></a>""")
+            append("""<div class="b_caption"><p class="b_lineclamp3">$snippet</p></div>""")
+            append("</li>")
+        }
+        append("</ol></body></html>")
+    }
+
+    @Test
+    fun `内置后端从结果页里抠出标题网址和摘要`() = runBlocking {
+        server.enqueue(
+            html(
+                bingPage(
+                    Triple("https://example.com/a", "第一条 <strong>标题</strong>", "第一段摘要"),
+                    Triple("https://example.com/b", "第二条", "第二段摘要"),
+                ),
+            ),
+        )
+
+        val result = tool(bing()).execute(args("test"))
+
+        assertFalse(result.content, result.isError)
+        // 标题里的 <strong> 要去掉，但不能把词也去掉
+        assertTrue(result.content, result.content.contains("第一条 标题"))
+        assertTrue(result.content, result.content.contains("https://example.com/a"))
+        assertTrue(result.content, result.content.contains("第一段摘要"))
+        assertTrue(result.content, result.content.contains("https://example.com/b"))
+    }
+
+    @Test
+    fun `内置后端的网址做了实体解码`() = runBlocking {
+        server.enqueue(
+            html(bingPage(Triple("https://example.com/x?a=1&amp;b=2", "带参数的", "摘要"))),
+        )
+
+        val result = tool(bing()).execute(args("test"))
+
+        // 不解码的话模型拿到的网址是坏的 —— 交给 fetch_url 会 404
+        assertTrue(result.content, result.content.contains("https://example.com/x?a=1&b=2"))
+        assertFalse(result.content, result.content.contains("&amp;"))
+    }
+
+    @Test
+    fun `内置后端不需要密钥，请求里也没有鉴权头`() = runBlocking {
+        server.enqueue(html(bingPage(Triple("https://example.com/a", "标题", "摘要"))))
+
+        val result = tool(bing()).execute(args("test"))
+
+        assertFalse(result.content, result.isError)
+        val recorded = server.takeRequest()
+        assertNull(recorded.headers["Authorization"])
+        assertNull(recorded.headers["X-Subscription-Token"])
+    }
+
+    @Test
+    fun `内置后端请求的是 q 参数`() = runBlocking {
+        server.enqueue(html(bingPage(Triple("https://example.com/a", "标题", "摘要"))))
+
+        tool(bing()).execute(args("android 16"))
+
+        val recorded = server.takeRequest()
+        assertEquals("android 16", recorded.url.queryParameter("q"))
+    }
+
+    /**
+     * 下面这两条是一对，也是这个后端最重要的两条 ——
+     * 「页面结构变了」和「真的没搜到」必须给出**相反**的建议。
+     */
+    @Test
+    fun `没有结果容器时指出是后端的问题而不是没搜到`() = runBlocking {
+        // 被反爬挡了 / 对方改版了 —— 拿到的根本不是结果页
+        server.enqueue(html("<html><body><h1>Making sure you're not a bot</h1></body></html>"))
+
+        val result = tool(bing()).execute(args("test"))
+
+        assertTrue(result.content, result.isError)
+        assertTrue(result.content, result.content.contains("找不到搜索结果"))
+        // 必须说清「和配置无关」：否则用户会去检查一个根本不存在的密钥
+        assertTrue(result.content, result.content.contains("和用户的配置无关"))
+        // 而且不能让模型换关键词重试
+        assertTrue(result.content, result.content.contains("重试也没有用"))
+    }
+
+    @Test
+    fun `有结果容器但没有条目时算没搜到`() = runBlocking {
+        server.enqueue(html("""<html><body><ol id="b_results"></ol></body></html>"""))
+
+        val result = tool(bing()).execute(args("test"))
+
+        // 和上一条相反：这里是**成功**（零结果），引导换关键词
+        assertFalse(result.content, result.isError)
+        assertTrue(result.content, result.content.contains("没有返回任何结果"))
+    }
+
+    @Test
+    fun `缺网址的条目被丢掉`() = runBlocking {
+        val page = """
+            <html><body><ol id="b_results">
+            <li class="b_algo"><h2 class="">没有链接的条目</h2></li>
+            <li class="b_algo"><a href="https://example.com/ok"><h2>有链接的条目</h2></a></li>
+            </ol></body></html>
+        """.trimIndent()
+        server.enqueue(html(page))
+
+        val result = tool(bing()).execute(args("test"))
+
+        assertFalse(result.content, result.isError)
+        assertTrue(result.content, result.content.contains("有链接的条目"))
+        // 没有网址的条目给模型也没用 —— 它没法把网址交给 fetch_url
+        assertFalse(result.content, result.content.contains("没有链接的条目"))
+    }
+
+    @Test
+    fun `内置后端的 HTTP 失败不指向密钥`() = runBlocking {
+        server.enqueue(MockResponse(code = 403, body = "blocked"))
+
+        val result = tool(bing()).execute(args("test"))
+
+        assertTrue(result.content, result.isError)
+        // 这个后端没有密钥可查 —— 说「去检查密钥」会把用户引到错的地方
+        assertFalse(result.content, result.content.contains("检查 API Key"))
+        assertTrue(result.content, result.content.contains("换一个后端"))
+    }
+
+    // ---------- 内置后端的配置层 ----------
+
+    @Test
+    fun `内置后端有默认地址`() {
+        assertEquals(
+            "https://cn.bing.com/search",
+            defaultEndpoint(WebSearchBackend.BING_HTML),
+        )
+    }
+
+    @Test
+    fun `内置后端地址留空时回落到默认`() {
+        // 设置页保存的是空串（用户没填）时也要能跑起来
+        val config = WebSearchConfig(WebSearchBackend.BING_HTML, "")
+
+        assertEquals("cn.bing.com", config.resolveEndpoint()?.host)
+    }
+
+    @Test
+    fun `内置后端不需要密钥就算配好了`() {
+        val config = WebSearchConfig(WebSearchBackend.BING_HTML, "", apiKey = null)
+
+        assertTrue(config.isComplete())
+    }
+
+    @Test
+    fun `内置后端的 id 能被读回来`() {
+        // 存进 SharedPreferences 的是这个 id，读不回来 = 默认值形同虚设
+        assertEquals(WebSearchBackend.BING_HTML, WebSearchBackend.fromId("bing"))
     }
 
     // ---------- 元数据 ----------

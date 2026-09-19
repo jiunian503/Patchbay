@@ -31,7 +31,7 @@ data class WebSearchUiState(
     /** 用户新输入的密钥。**不回显已存的那个。** */
     val apiKeyInput: String = "",
 
-    /** KeyStore 里是否已经有一把密钥。 */
+    /** 当前这个后端在 KeyStore 里是否已经有一把密钥。 */
     val keyConfigured: Boolean = false,
 
     /** 用户点了「清除密钥」。 */
@@ -55,9 +55,47 @@ data class WebSearchUiState(
     val testFailed: Boolean = false,
 ) {
 
-    /** 这个后端要不要密钥。SearXNG 的实例大多不要。 */
+    /** 这个后端要不要密钥。内置的和 SearXNG 都不要。 */
     val keyRequired: Boolean
         get() = backend == WebSearchBackend.BRAVE || backend == WebSearchBackend.TAVILY
+
+    /**
+     * 换后端之后的状态。
+     *
+     * 抽成纯函数是为了能直接断言 —— 原来这段逻辑写在
+     * [WebSearchSettingsViewModel.selectBackend] 里，而那个类要一个真的
+     * `AppContainer`（Room、KeyStore、一堆 Android 依赖）才构造得出来。
+     *
+     * ## 地址**无条件**跟着新后端走
+     *
+     * 原来的写法是「当前地址是空的、或者正好等于上一个后端的默认地址，才换」，
+     * 本意是保护用户折腾很久才找到的那个 SearXNG 实例地址。那个考虑没错，
+     * 但它漏了一种情况：**上一个后端是 null**（关闭状态）。
+     *
+     * 「关闭 → 打开」正是**新用户第一次开联网搜索的唯一路径**，而那一刻地址框里
+     * 留着的是上个时代的值（真机上抓到的是 `http://127.0.0.1:8767`，
+     * 上一次折腾 SearXNG 留下的）。用户按提示选了「不用配置、装上就能用」的
+     * 内置后端，保存之后搜索必然失败 —— 而失败信息（连不上一个莫名其妙的地址）
+     * 完全指不出真正的原因。
+     *
+     * 所以这里不再判断，地址一律换成新后端的默认值。被放弃的是「跨后端保留
+     * 用户手填的地址」：地址**属于**某个后端（Brave 的地址填给 Tavily 毫无意义），
+     * 换后端本来就该重来。
+     *
+     * [keyConfigured] 先按 `false` 算，真实值由
+     * [WebSearchSettingsViewModel.selectBackend] 异步补上（要读 KeyStore）。
+     * 先按 `false` 是有意的：短暂显示「需要填密钥」会让人再确认一眼，
+     * 短暂显示「已保存一个密钥」会让人直接点保存。
+     */
+    fun afterBackendChange(next: WebSearchBackend?): WebSearchUiState = copy(
+        backend = next,
+        endpoint = next?.let(::defaultEndpoint).orEmpty(),
+        apiKeyInput = "",
+        clearedKey = false,
+        keyConfigured = false,
+        testMessage = null,
+        formError = null,
+    )
 }
 
 /**
@@ -82,7 +120,8 @@ class WebSearchSettingsViewModel(private val container: AppContainer) : ViewMode
     fun load() {
         viewModelScope.launch {
             val backend = WebSearchBackend.fromId(container.settings.webSearchBackend())
-            val configured = container.webSearch.storedKey() != null
+            // 密钥是按后端分开存的，所以这里必须带上后端问
+            val configured = container.webSearch.storedKey(backend) != null
             _state.update {
                 it.copy(
                     backend = backend,
@@ -103,23 +142,22 @@ class WebSearchSettingsViewModel(private val container: AppContainer) : ViewMode
     /**
      * 换后端。
      *
-     * 地址会**跟着换**，但只在两种情况：当前是空的，或者当前正好等于
-     * 上一个后端的默认地址。用户自己填过的地址不能被覆盖 ——
-     * 那往往是他折腾很久才找到的一个能用的实例。
+     * 地址、密钥输入框、上一次的测试结果都跟着清（逐条理由见
+     * [WebSearchUiState.afterBackendChange]）。
+     *
+     * 还要**重新读一次 KeyStore**：`keyConfigured` 是**按后端分类**的值，
+     * 而它原来只在 [load] 里算过一次 —— 于是切到「从没配过」的后端时，
+     * 界面照样显示「已保存一个密钥」，用户直接点保存，然后搜索失败。
+     * 这是真机上抓到的第二层 bug，编译器和单测都看不见它：
+     * **改了读取逻辑，不等于改了触发时机。**
      */
     fun selectBackend(backend: WebSearchBackend?) {
-        _state.update { state ->
-            val previous = state.backend
-            val wasDefaultOrBlank =
-                state.endpoint.isBlank() ||
-                    (previous != null && state.endpoint.trim() == defaultEndpoint(previous))
-            state.copy(
-                backend = backend,
-                endpoint = if (wasDefaultOrBlank) backend?.let(::defaultEndpoint).orEmpty() else state.endpoint,
-                // 换了后端，上一次的测试结果就没有意义了
-                testMessage = null,
-                formError = null,
-            )
+        _state.update { it.afterBackendChange(backend) }
+        viewModelScope.launch {
+            val configured = container.webSearch.storedKey(backend) != null
+            // 只认「还是不是当前这个后端」：连点 A → B → A 时，
+            // B 那次的结果可能最后才到，不能让它覆盖 A 的
+            _state.update { if (it.backend == backend) it.copy(keyConfigured = configured) else it }
         }
     }
 
@@ -180,7 +218,8 @@ class WebSearchSettingsViewModel(private val container: AppContainer) : ViewMode
      * 这时候最需要知道「这样填对不对」。要测已保存的值，先保存就是了。
      *
      * 密钥的取值顺序：用户新输入的 → KeyStore 里已存的。用户没重新输入
-     * 密钥是常态（他可能只是改了地址），那时候必须用已存的那把。
+     * 密钥是常态（他可能只是改了地址），那时候必须用已存的那把 ——
+     * 而且必须是**当前这个后端**的那把。
      */
     fun test() {
         val state = _state.value
@@ -195,7 +234,7 @@ class WebSearchSettingsViewModel(private val container: AppContainer) : ViewMode
             val key = when {
                 state.clearedKey -> null
                 state.apiKeyInput.isNotBlank() -> state.apiKeyInput
-                else -> container.webSearch.storedKey()
+                else -> container.webSearch.storedKey(backend)
             }
 
             val result = container.probeWebSearch(WebSearchConfig(backend, state.endpoint, key))
