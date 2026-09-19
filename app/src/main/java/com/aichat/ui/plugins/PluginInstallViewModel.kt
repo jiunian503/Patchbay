@@ -1,7 +1,6 @@
 package com.aichat.ui.plugins
 
 import android.content.ClipboardManager
-import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -142,8 +141,11 @@ data class PluginInstallUiState(
  */
 class PluginInstallViewModel(
     private val container: AppContainer,
-    private val context: Context,
 ) : ViewModel() {
+
+    // 平台服务（assets / contentResolver / 剪贴板）一律走 container.appContext，
+    // 不自己接一个上下文参数。lint 的 StaticFieldLeak 分不清传进来的是不是
+    // applicationContext，而 ViewModel 又活得比界面久 —— 干脆不给它这个机会。
 
     private val _state = MutableStateFlow(PluginInstallUiState())
     val state: StateFlow<PluginInstallUiState> = _state.asStateFlow()
@@ -185,7 +187,7 @@ class PluginInstallViewModel(
         viewModelScope.launch {
             val text = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.assets.open(example.assetPath).bufferedReader().use { it.readText() }
+                    container.appContext.assets.open(example.assetPath).bufferedReader().use { it.readText() }
                 }.getOrNull()
             }
             if (text == null) {
@@ -224,7 +226,7 @@ class PluginInstallViewModel(
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)
+                    container.appContext.contentResolver.openInputStream(uri)
                         ?.use { readCapped(it, MAX_MANIFEST_CHARS) }
                 }.getOrNull()
             }
@@ -322,10 +324,10 @@ class PluginInstallViewModel(
      * 比在这里猜「用户到底想干什么」要诚实。
      */
     private fun readClipboard(): String? {
-        val manager = context.getSystemService(ClipboardManager::class.java) ?: return null
+        val manager = container.appContext.getSystemService(ClipboardManager::class.java) ?: return null
         val clip = manager.primaryClip ?: return null
         if (clip.itemCount == 0) return null
-        return clip.getItemAt(0).coerceToText(context)?.toString()
+        return clip.getItemAt(0).coerceToText(container.appContext)?.toString()
     }
 
     /**

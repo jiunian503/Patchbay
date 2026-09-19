@@ -42,7 +42,6 @@ import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.manifest.displayName
 import com.aichat.plugin.manifest.isHighRisk
-import androidx.compose.ui.platform.LocalContext
 
 /**
  * 安装插件。
@@ -87,8 +86,12 @@ fun PluginInstallScreen(
     onBack: () -> Unit,
     onInstalled: (String) -> Unit,
 ) {
-    val context = LocalContext.current
-    val viewModel: PluginInstallViewModel = viewModel { PluginInstallViewModel(container, context) }
+    // ViewModel 不再自己拿上下文 —— 它要的「可以长期持有」的那个由
+    // AppContainer.appContext 提供（那个值在容器构造时就过了一道
+    // applicationContext）。这里只传容器，少一个能把 Activity 传错的口子。
+    val viewModel: PluginInstallViewModel = viewModel {
+        PluginInstallViewModel(container)
+    }
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     // 装成功后跳详情页：用户下一步多半是去填配置，而不是回列表。

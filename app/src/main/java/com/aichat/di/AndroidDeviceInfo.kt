@@ -67,13 +67,11 @@ class AndroidDeviceInfo(private val context: Context) : DeviceInfoSource {
     override fun appVersion(): String? = runCatching {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val name = info.versionName ?: return@runCatching null
-        val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            info.longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            info.versionCode.toLong()
-        }
-        "$name ($code)"
+        // minSdk 是 28（= P），所以 longVersionCode 一定可用。
+        // 这里原本有个 `SDK_INT >= P` 的分支 + 一个 @Suppress 的 versionCode
+        // 回退，lint 的 ObsoleteSdkInt 指出它恒真 —— 是 minSdk 抬高之后
+        // 留下来的死代码。
+        "$name (${info.longVersionCode})"
     }.getOrNull()
 
     /**

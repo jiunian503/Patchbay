@@ -60,7 +60,15 @@ import okhttp3.OkHttpClient
  */
 class AppContainer(context: Context) : ChatDeps {
 
-    private val appContext = context.applicationContext
+    /**
+     * 一定是 application context —— 构造函数里过了一道 `applicationContext`。
+     *
+     * 公开它，是为了给「活得比界面久」的对象一个**类型正确**的上下文来源
+     * （[AndroidDeviceInfo] 就是这么拿的）。这样就不存在「顺手把 Activity
+     * 传进去」这条路 —— 而那正是 lint 的 StaticFieldLeak 在 ViewModel 上
+     * 反复报的那件事。
+     */
+    val appContext: Context = context.applicationContext
 
     private val db: AppDatabase by lazy { AppDatabase.create(appContext) }
 

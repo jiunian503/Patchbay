@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  云备份与**设备间迁移（D2D）**的规则。
+
+  ## 为什么光有 allowBackup="false" 不够
+
+  Android 12 起 `android:allowBackup` 的行为变了。官方文档（Android 12 行为变更，
+  「D2D transfer functionality changes」一节）的原话：
+
+      On devices from some device manufacturers, specifying
+      android:allowBackup="false" does disable backups to Google Drive,
+      but doesn't disable D2D transfers for the app.
+
+  也就是 `allowBackup="false"` 挡得住云备份，**挡不住换机迁移**。要控制 D2D 只能靠
+  这份配置里的 <device-transfer>。同一节还说，旧式的 include/exclude 规则
+  （fullBackupContent）**同样不影响 D2D**：
+
+      Specifying include and exclude rules with the XML configuration
+      mechanism doesn't affect D2D transfers, though it still affects
+      cloud-based backup and restore.
+
+  这份配置在 Android 12 及以上生效，即使应用还没 target 31。Android 11 及以下
+  仍然由 `allowBackup="false"` 兜住（那时它管全部形式的备份）。
+
+  ## 为什么这里什么都不留
+
+  理由和 `allowBackup="false"` 是同一个（见 AndroidManifest 里那段）：AndroidKeyStore
+  里的主密钥不可导出、不参与任何迁移，所以数据一旦被搬过去，`aichat_secrets.xml` 里
+  那堆密文一把也解不开 —— 而 `AndroidKeystoreSecretStore` 解不开时是**优雅降级**
+  （删掉那条记录、返回 null、不崩）。用户看到的是「会话在、服务商在、密钥全空」，
+  发消息失败却没有任何地方提示要重填。
+
+  **「全都丢了」比「看起来都在、其实缺一块」好。**
+
+  两个 domain 组都显式排除干净，不留 root / file / database / sharedpref / external。
+  这不是「顺手加的保险」—— 它是 `allowBackup` 在 Android 12+ 上**管不到的那一半**。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+    </device-transfer>
+</data-extraction-rules>
