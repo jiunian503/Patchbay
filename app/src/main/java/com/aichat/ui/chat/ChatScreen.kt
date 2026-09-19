@@ -38,7 +38,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -76,6 +75,7 @@ import com.aichat.theme.MonoLabelStyle
 import com.aichat.theme.MonoTextStyle
 import com.aichat.theme.Space
 import com.aichat.ui.common.PbIcons
+import com.aichat.ui.common.PbTonalButton
 import kotlinx.coroutines.flow.filter
 
 /**
@@ -1129,7 +1129,7 @@ private fun SetupHint(onOpenSettings: () -> Unit) {
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Spacer(Modifier.height(6.dp))
-            FilledTonalButton(onClick = onOpenSettings) { Text("去设置") }
+            PbTonalButton(onClick = onOpenSettings) { Text("去设置") }
         }
     }
 }
@@ -1252,13 +1252,13 @@ private fun InputBar(
             // 于是按钮看起来像贴在输入框右下角的一枚邮票。在 411dp 的手机宽度上，
             // 这个错位比数字本身明显得多。
             //
-            // 这里只对齐**高度**。按钮的形状仍是 M3 的胶囊、输入框仍是 Material 的
-            // 默认圆角，两者不同调 —— 那是 `theme/Shape.kt` 里记着的待定决定。
+            // 这里只对齐**高度**。形状由 PbTonalButton 统一给（10dp 圆角）；
+            // 输入框仍是 Material 的默认圆角，那一半还没收（见 `theme/Shape.kt`）。
             val actionHeight = Modifier.height(56.dp)
             if (streaming) {
-                FilledTonalButton(onClick = onStop, modifier = actionHeight) { Text("停止") }
+                PbTonalButton(onClick = onStop, modifier = actionHeight) { Text("停止") }
             } else {
-                FilledTonalButton(onClick = onSend, enabled = canSend, modifier = actionHeight) {
+                PbTonalButton(onClick = onSend, enabled = canSend, modifier = actionHeight) {
                     Text("发送")
                 }
             }

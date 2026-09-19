@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -39,6 +37,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbButton
+import com.aichat.ui.common.PbOutlinedButton
 import com.aichat.ui.common.PbTopBar
 import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.describe
@@ -146,14 +146,14 @@ fun PluginInstallScreen(
             var urlDialog by remember { mutableStateOf(false) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
+                PbOutlinedButton(
                     onClick = viewModel::loadFromClipboard,
                     modifier = Modifier.weight(1f),
                     enabled = !state.fetching,
                 ) {
                     Text("从剪贴板")
                 }
-                OutlinedButton(
+                PbOutlinedButton(
                     onClick = {
                         // MIME 过滤只能给建议，各家文件管理器对 .json 的
                         // 归类并不一致（有的是 application/json、有的干脆
@@ -167,7 +167,7 @@ fun PluginInstallScreen(
                 ) {
                     Text("从文件…")
                 }
-                OutlinedButton(
+                PbOutlinedButton(
                     onClick = { urlDialog = true },
                     modifier = Modifier.weight(1f),
                     enabled = !state.fetching,
@@ -247,7 +247,7 @@ fun PluginInstallScreen(
                         Text("取消")
                     }
                 }
-                Button(
+                PbButton(
                     onClick = if (state.pendingUpgrade != null) {
                         viewModel::confirmUpgrade
                     } else {

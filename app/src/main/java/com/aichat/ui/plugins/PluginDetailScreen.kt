@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbTopBar
 import com.aichat.plugin.manifest.SettingType
 import com.aichat.ui.conversations.formatTime
@@ -112,7 +112,7 @@ fun PluginDetailScreen(
                     onTextChange = viewModel::onTextChange,
                     onClearSecret = viewModel::clearSecret,
                 )
-                Button(onClick = viewModel::save, modifier = Modifier.fillMaxWidth()) {
+                PbButton(onClick = viewModel::save, modifier = Modifier.fillMaxWidth()) {
                     Text("保存设置")
                 }
             }
@@ -252,7 +252,7 @@ private fun McpBlock(status: McpStatus, onRefresh: () -> Unit) {
             }
 
             Spacer(Modifier.height(8.dp))
-            Button(
+            PbButton(
                 onClick = onRefresh,
                 // 连接是一次发往第三方的网络请求，最慢能到 45 秒。
                 // 不禁用的话用户会连点，而对端会看到同一个插件连着打了好几遍

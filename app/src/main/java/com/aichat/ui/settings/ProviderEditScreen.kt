@@ -12,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
+import com.aichat.ui.common.PbTonalButton
 import com.aichat.ui.common.PbTopBar
 
 /** 添加 / 编辑服务商。 */
@@ -209,7 +209,7 @@ fun ProviderEditScreen(
 
             Spacer(Modifier.height(4.dp))
 
-            FilledTonalButton(
+            PbTonalButton(
                 onClick = viewModel::save,
                 enabled = state.canSave,
                 modifier = Modifier.fillMaxWidth(),

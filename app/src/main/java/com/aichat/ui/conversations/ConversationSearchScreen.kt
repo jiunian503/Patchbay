@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -41,6 +40,7 @@ import com.aichat.domain.search.MessageHit
 import com.aichat.domain.text.TextWindow
 import com.aichat.domain.text.textWindow
 import com.aichat.theme.Space
+import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbHintCard
 import com.aichat.ui.common.PbIcons
@@ -118,7 +118,7 @@ fun ConversationSearchScreen(
                         ),
                 )
                 Spacer(Modifier.width(Space.sm))
-                Button(
+                PbButton(
                     onClick = {
                         focus.clearFocus()
                         viewModel.submit()

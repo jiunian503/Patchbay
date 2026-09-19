@@ -18,37 +18,46 @@ import androidx.compose.ui.unit.dp
  * 另外原来各处的圆角是**硬编码**的（气泡 14dp、思考块 10dp、工具 chip 8dp），
  * 各写各的、以后必然漂移。现在统一走这里，改一处全变。
  *
- * ## 按钮和输入框：写了没生效
+ * ## 按钮：已收口到 `PbButton`（第三十四轮）
  *
- * 这里原本写着 `small = 按钮`、`extraSmall = 输入框`，但那是**写了没生效**：
+ * 这里原本写着 `small = 按钮`，但那是**写了没生效**：
+ * `Button` / `FilledTonalButton` / `OutlinedButton` 走的是自己的
+ * `ButtonDefaults.shape`（**胶囊形**，两端全圆），**不读 `Shapes`**。
  *
- * - `Button` / `FilledTonalButton` / `OutlinedButton` 走 `ButtonDefaults.shape`
- *   （**胶囊形**，两端全圆），不读 `Shapes`
- * - `OutlinedTextField` 走 `OutlinedTextFieldDefaults.shape`，也不读 `Shapes`
+ * 于是形状只能在每个调用点显式传 —— 而实测全 App 14 个有底色的按钮
+ * （`Button` 6 + `FilledTonalButton` 4 + `OutlinedButton` 4）里**只有 1 个**
+ * 传了 `shape`（抽屉里的「新建对话」传了 `small`）。结果是同一个抽屉里
+ * 「新建对话」是 10dp 圆角、它上面的图标按钮是圆形、别的页面是药丸 ——
+ * **一屏三套形状**。这比「全是胶囊」更像 bug。
  *
- * 实测全 App 14 个有底色的按钮（`Button` 6 + `FilledTonalButton` 4 +
- * `OutlinedButton` 4）、16 处 `OutlinedTextField`，**没有任何一处**显式传过
- * `shape`。所以这两类控件走的其实是 Material 的默认，跟这套「设备面板」的
- * 收角语言不是一套。
+ * 决定是**统一到 `small`**（10dp）。做法**不是**逐处传 `shape`（那是 14 处），
+ * 而是照 `PbCard` 的样子包了一层 `PbButton` / `PbTonalButton` /
+ * `PbOutlinedButton`（都在 `ui/common/PbButton.kt`）：默认参数里定死一次，
+ * 14 个调用点只换名字。**以后加按钮用那三个，别直接用 Material 的。**
  *
- * 要不要统一，是一次**观感层面的整体决定**，不是 bug 修复。
+ * ## 输入框：仍然是「写了没生效」
  *
- * 真要统一，正确做法**不是**逐处传 `shape`（那是 30 处），而是照 `PbCard`
- * 的样子包一层 `PbButton` / `PbTextField` —— 默认参数里把 shape 设好，
- * 调用点只换名字，以后也不会再漂回去。
+ * `OutlinedTextField` 走 `OutlinedTextFieldDefaults.shape`，也不读 `Shapes`。
+ * 全 App 16 处都没有显式传过 `shape`，所以它们仍是 Material 的默认圆角，
+ * 和这套「设备面板」的收角语言不是一套。**这一半还没做** —— 但按钮那套
+ * 收口办法可以直接照搬（包一个 `PbTextField`）。
  *
  * 这两档本身没白留：思考块、工具 chip、失败块在用 `small`，服务商列表的状态
- * 标签在用 `extraSmall`。是「按钮和输入框没用」，不是「没人用」。
+ * 标签在用 `extraSmall`。
  *
- * ## 另有 4 处硬编码绕过了这里
+ * ## 另有 5 处硬编码绕过了这里（2 处是有意的）
  *
- * 代码块卡片 8dp、引用块左侧竖条 2dp、表格 8dp、工具审批弹窗 8dp。竖条那 2dp
- * 是有意的（装饰线条不是容器），剩下三处迟早该收进来。
+ * **有意的两处**，不要收：
+ * - 引用块左侧竖条 2dp —— 装饰线条，不是容器
+ * - 消息气泡的 18dp / 一侧 6dp —— 那个 6dp 是**尾巴**，靠非对称指出是谁说的话
+ *
+ * **迟早该收的三处**：代码块卡片 8dp、表格 8dp、工具审批弹窗里那段参数 JSON
+ * 的 8dp。它们和 `medium = 14dp` 的卡片放在同一屏上，8 和 14 的差别看得出。
  */
 val Shapes =
   Shapes(
     extraSmall = RoundedCornerShape(6.dp), // 输入框、小标签
-    small = RoundedCornerShape(10.dp), // chip。**不是按钮**（见上面的说明）
+    small = RoundedCornerShape(10.dp), // 按钮（经 PbButton）、chip、思考块
     medium = RoundedCornerShape(14.dp), // 卡片
     large = RoundedCornerShape(18.dp), // 气泡、FAB
     extraLarge = RoundedCornerShape(22.dp), // 对话框

@@ -13,13 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -43,8 +41,10 @@ import com.aichat.di.AppContainer
 import com.aichat.theme.MonoTextStyle
 import com.aichat.theme.Space
 import com.aichat.tools.WebSearchBackend
+import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbIcons
+import com.aichat.ui.common.PbOutlinedButton
 import com.aichat.ui.common.PbSectionLabel
 
 /**
@@ -214,14 +214,14 @@ fun WebSearchSettingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = Space.sm),
                     horizontalArrangement = Arrangement.spacedBy(Space.sm),
                 ) {
-                    Button(
+                    PbButton(
                         onClick = viewModel::save,
                         enabled = !state.saving && !state.testing,
                     ) {
                         Text(if (state.saving) "保存中…" else "保存")
                     }
                     if (backend != null) {
-                        OutlinedButton(
+                        PbOutlinedButton(
                             onClick = viewModel::test,
                             enabled = !state.saving && !state.testing,
                         ) {

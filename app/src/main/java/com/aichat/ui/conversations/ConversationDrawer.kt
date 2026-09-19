@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.DropdownMenu
@@ -48,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.aichat.chat.ConversationSummary
 import com.aichat.theme.MonoLabelStyle
 import com.aichat.theme.Space
+import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbIcons
 
 /**
@@ -173,9 +173,8 @@ fun ConversationDrawer(
         Column(Modifier.fillMaxSize()) {
             DrawerHeader()
 
-            Button(
+            PbButton(
                 onClick = onNewConversation,
-                shape = MaterialTheme.shapes.small,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Space.lg),
             ) {
                 Icon(PbIcons.Add, contentDescription = null, modifier = Modifier.size(18.dp))
