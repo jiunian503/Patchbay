@@ -233,38 +233,64 @@ fun ChatScreen(
             )
         },
     ) { padding ->
-        Column(
+        // 正文列宽上限。
+        //
+        // 1097dp 的横屏下（MuMu 1920×1080 @280dpi），一行中文能拉到 60 多字 ——
+        // 眼睛追不住行首行尾。这是**不可读**，不是审美问题。
+        //
+        // 取 600dp 有两个依据：一是 Material 3 窗口尺寸分类的 Compact/Medium 断点，
+        // 二是 600dp ≈ 一行 37 个中文字（bodyLarge 16sp，一个汉字约占 16dp），
+        // 落在排版惯例的 35–45 字舒适区间里。
+        //
+        // 只在宽屏生效：411dp 的手机、617dp 的竖屏都不受影响，所以没有回归。
+        val contentMaxWidth = 600.dp
+
+        // 限宽加在**最外层**，而不是给消息列表、错误条、输入栏各加一次 ——
+        // 三者的宽度必须一致，漏掉一个就会在宽屏上左右错开
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .imePadding(),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            MessageArea(
-                state = state,
-                onLoadEarlier = viewModel::loadEarlier,
-                onRegenerate = viewModel::regenerate,
-                onEdit = { editing = it },
-                highlightMessageId = highlightMessageId,
-                highlightQuery = highlightQuery,
-                modifier = Modifier.weight(1f),
-            )
+            // ⚠️ `widthIn` 必须在 `fillMaxSize` **前面**。
+            //
+            // 反过来的话，`fillMaxSize` 先把 minWidth 顶到父宽，`widthIn(max=600)`
+            // 就只能把 maxWidth 压到 600，而 min 还是父宽 —— min > max 时宽度
+            // 取 min，限宽整个失效，而且不报任何错。
+            Column(
+                modifier = Modifier
+                    .widthIn(max = contentMaxWidth)
+                    .fillMaxSize(),
+            ) {
+                MessageArea(
+                    state = state,
+                    onLoadEarlier = viewModel::loadEarlier,
+                    onRegenerate = viewModel::regenerate,
+                    onEdit = { editing = it },
+                    highlightMessageId = highlightMessageId,
+                    highlightQuery = highlightQuery,
+                    modifier = Modifier.weight(1f),
+                )
 
-            state.error?.let { message ->
-                ErrorBanner(message = message, onDismiss = viewModel::dismissError)
+                state.error?.let { message ->
+                    ErrorBanner(message = message, onDismiss = viewModel::dismissError)
+                }
+
+                if (state.needsProvider) {
+                    SetupHint(onOpenSettings = onOpenSettings)
+                }
+
+                InputBar(
+                    value = state.input,
+                    canSend = state.canSend,
+                    streaming = state.streaming,
+                    onValueChange = viewModel::onInputChange,
+                    onSend = viewModel::send,
+                    onStop = viewModel::stop,
+                )
             }
-
-            if (state.needsProvider) {
-                SetupHint(onOpenSettings = onOpenSettings)
-            }
-
-            InputBar(
-                value = state.input,
-                canSend = state.canSend,
-                streaming = state.streaming,
-                onValueChange = viewModel::onInputChange,
-                onSend = viewModel::send,
-                onStop = viewModel::stop,
-            )
         }
     }
 }
@@ -393,7 +419,9 @@ private fun MessageArea(
     LazyColumn(
         state = listState,
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(12.dp),
+        // 左右 16dp 而不是 12dp：12dp 在 411dp 的手机宽度上，正文几乎是贴着屏幕
+        // 边走的，而右边用户气泡又自带内边距 —— 两侧视觉重量不对称
+        contentPadding = PaddingValues(horizontal = Space.lg, vertical = Space.md),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (state.hasMore) {
@@ -1178,7 +1206,9 @@ private fun InputBar(
 ) {
     Surface(tonalElevation = 3.dp) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(Space.sm),
+            // Bottom 而不是 CenterVertically：输入框能长到 5 行，按钮该跟着**底边**
+            // 走（聊天输入栏的惯例），而不是浮到垂直中线上
             verticalAlignment = Alignment.Bottom,
         ) {
             OutlinedTextField(
@@ -1188,11 +1218,22 @@ private fun InputBar(
                 placeholder = { Text("说点什么…") },
                 maxLines = 5,
             )
-            Spacer(Modifier.size(8.dp))
+            Spacer(Modifier.size(Space.sm))
+            // 高度必须和输入框**单行**时一样：56dp 是 M3 文本字段的最小高度。
+            //
+            // 原来这里是裸的 FilledTonalButton，高 40dp，和 56dp 的输入框底边对齐 ——
+            // 于是按钮看起来像贴在输入框右下角的一枚邮票。在 411dp 的手机宽度上，
+            // 这个错位比数字本身明显得多。
+            //
+            // 这里只对齐**高度**。按钮的形状仍是 M3 的胶囊、输入框仍是 Material 的
+            // 默认圆角，两者不同调 —— 那是 `theme/Shape.kt` 里记着的待定决定。
+            val actionHeight = Modifier.height(56.dp)
             if (streaming) {
-                FilledTonalButton(onClick = onStop) { Text("停止") }
+                FilledTonalButton(onClick = onStop, modifier = actionHeight) { Text("停止") }
             } else {
-                FilledTonalButton(onClick = onSend, enabled = canSend) { Text("发送") }
+                FilledTonalButton(onClick = onSend, enabled = canSend, modifier = actionHeight) {
+                    Text("发送")
+                }
             }
         }
     }
