@@ -33,6 +33,7 @@ Room 写入 + 网络」这一整条链。
 | `geo` | `geocode_city("Shanghai")` | **插件工具**（装了内置天气示例之后才有）→ 真发一次外网请求 |
 | `history` | `search_history("北京")` | **历史检索工具** → 真查一次设备本地数据库（Hermes 第三层记忆） |
 | `web` / `search` | `search_web("kotlin coroutines")` | **联网搜索** → 真出网抓一次 `cn.bing.com` 的结果页 |
+| `csv` | `csv_stats(内联 CSV)` | **脚本插件工具**（装了 `csvstat` 示例之后才有）→ 真起一次 `:sandbox` |
 | `md` | 不调工具，直接回一大段 Markdown | 渲染效果验收（标题/代码/表格/列表/引用/行内格式） |
 | 其它 | `no_such_tool_zzz(...)` | **工具不存在**的错误路径 |
 
@@ -44,6 +45,16 @@ Room 写入 + 网络」这一整条链。
 `geo` 那条是插件链路的验收路径，会真的打到 `api.open-meteo.com`
 （模拟器需要能上外网）。整条链一次跑完：装配 → 模型看到工具 → 调用 →
 占位符替换 → 白名单放行 → HTTP → `responsePath` 取值 → 回灌。
+
+`csv` 那条是**脚本插件**（QuickJS）唯一的验收路径，别的触发器都验不到它 ——
+声明式插件、MCP、内置工具全在**主进程**里跑，而这一条会真的拉起 `:sandbox`
+进程、dlopen `libquickjs.so`、在里面执行第三方 JS，再把结果搬回来。
+所以它同时是「脚本运行时能不能用」和「release 包（R8 混淆过）里那个独立进程
+起不起得来」的判据 —— 后者在 debug 上是验不到的。
+
+CSV 走**内联参数**而不是工作区文件：工作区要先在插件详情页导入，而中文文件名
+`input text` 打不进去，会把「怎么复现」变成一道额外的题。两列刻意一数值一文本，
+脚本里「数值占比超过八成才当数值列」那条分支的两边都要走到。
 
 **`no_such_tool_zzz` 是个刻意的怪名字。** 原来这里用的是 `get_weather`，
 装上天气插件之后它就成了真工具，默认分支会从「工具不存在」悄悄变成
@@ -346,6 +357,27 @@ class Handler(BaseHTTPRequestHandler):
             # 参数用**英文城市名**：`input text` 打不了中文，而这条路径
             # 常常要手敲参数复现，用中文会让「怎么复现」变成一道额外的题。
             return "geocode_city", '{"name": "Shanghai", "count": "1"}'
+        if "csv" in last_user:
+            # 走**脚本插件**提供的工具（`csv_stats`，QuickJS 运行时）。
+            # 装上 `plugin/examples/csvstat` 之后才有；这是唯一一条会真的
+            # 拉起 `:sandbox` 进程、dlopen `libquickjs.so` 并在里面执行第三方 JS
+            # 的路径 —— 声明式插件 / MCP / 内置工具全在主进程里跑，验不到那一整套。
+            #
+            # 参数内联 CSV 而不是走工作区：工作区要先在插件详情页导入，
+            # 而中文文件名 `input text` 打不进去（同 `geo` 的理由）。
+            #
+            # 两列刻意一数值一文本 —— 脚本里「数值占比超过八成才当数值列」
+            # 那条分支的两边都要走到。
+            return "csv_stats", json.dumps(
+                {
+                    "csv": "城市,销量,备注\n"
+                    "北京,1200,好\n"
+                    "上海,980,好\n"
+                    "广州,1500,一般\n"
+                    "深圳,1100,好"
+                },
+                ensure_ascii=False,
+            )
         if "history" in last_user:
             # 历史检索（Hermes 三层记忆的第三层）。这条路径和别的不一样：
             # 它读的是**设备本地数据库**，所以第二轮回显里出现的内容
