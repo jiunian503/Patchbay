@@ -146,12 +146,36 @@ $G :app:assembleRelease --max-workers=2 --no-configuration-cache
 
 ### 7. 归档 APK + mapping
 
+**先提交版本号那处改动**，再归档：
+
+```bash
+git add app/build.gradle.kts && git commit -m "v1.1：versionCode 2 / versionName 1.1"
+```
+
+> 归档脚本会把 `git rev-parse --short HEAD` 和「工作区干不干净」写进 `README.txt`。
+> 没提交就归档，README 里记的是**上一个** commit，后面还跟着一句
+> 「⚠️ 有未提交改动」—— 而这一版发出去的到底是哪份源码，就说不清了。
+
+然后：
+
 ```bash
 python tools/archive_release.py --check-only   # 先只验配套，不落盘
 python tools/archive_release.py                # 验过了再归档
 ```
 
-产出 `dist/patchbay-<versionName>/`（约 45 MB，主体是 mapping）。
+产出 `dist/patchbay-<versionName>/`（约 45 MB，主体是 mapping）：
+
+| 文件 | 是什么 |
+|---|---|
+| `patchbay-<version>.apk` | 会发出去的那一份 |
+| `mapping.txt` | 只对这一份 APK 有效 |
+| `map-id.txt` | 一行 hash，给 `--find-map-id` 反查用 |
+| `README.txt` | 版本 / 时间 / commit / sha256 / 还原命令 |
+| `NOTES.md` | **手写的** Release 说明（见第 8 步），脚本不生成它 |
+
+> **验收之后 sha256 要对得上**：归档脚本把 APK 的 sha256 写进 `README.txt`，
+> 把它和第 6 步之前记下的那个比 —— 相同才说明「真机上验过的」就是「要发的」。
+> 改过版本号会重新构建，APK 的字节就变了，那时**要重压一遍 §89 那五项**。
 
 > **为什么要验**：APK 和 mapping **不配套时 `retrace` 不报错**，会给一份行号错误但看着
 > 完全合理的结果。配套判据是 APK 的 DEX 里的 `r8-map-id-<hash>` 与 mapping 里的
@@ -182,16 +206,29 @@ git push
 GH="/c/Program Files/GitHub CLI/gh.exe"
 TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill | sed -n 's/^password=//p')
 
-GH_TOKEN="$TOKEN" "$GH" release create v1.0 \
+GH_TOKEN="$TOKEN" "$GH" release create v1.1 \
   --repo jiunian503/Patchbay \
-  --title "Patchbay 1.0" \
-  --notes-file <说明.md> \
+  --title "Patchbay 1.1" \
+  --notes-file dist/patchbay-1.1/NOTES.md \
   --target master \
-  dist/patchbay-1.0/patchbay-1.0.apk \
-  dist/patchbay-1.0/mapping.txt
+  dist/patchbay-1.1/patchbay-1.1.apk \
+  dist/patchbay-1.1/mapping.txt
 ```
 
+> Release 说明手写在 `dist/patchbay-<version>/NOTES.md` —— 和它描述的那份 APK 放在一起，
+> 半年后翻出来是一套的。**脚本不生成它，也不覆盖它**（`--force` 重归档会连它一起删掉，
+> 那时要重写）。照上一版的 `NOTES.md` 抄结构：先讲这一版加了什么，再讲下载与注意事项。
+
 ⚠️ **两个附件都要传** —— 只传 APK 的话，以后用户发来的崩溃堆栈就永远读不懂了。
+
+传完核对一遍附件齐没齐：
+
+```bash
+GH_TOKEN="$TOKEN" "$GH" release view v1.1 --repo jiunian503/Patchbay --json assets \
+  --jq '.assets[] | "\(.name)  \(.size) B  \(.state)"'
+```
+
+期望看到两行、都是 `uploaded`，且 `.apk` 的字节数和 `dist/` 里那份一致。
 
 **为什么用 `GH_TOKEN` 而不是 `gh auth login`**：前者不落盘（token 只在那一条命令的环境里），
 后者会把它写进 `~/.config/gh/hosts.yml`。token 直接从 git 凭据管理器取（那里本来就有一份），

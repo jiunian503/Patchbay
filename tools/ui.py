@@ -54,7 +54,7 @@ adb -s $ADB_DEVICE shell wm size     # 720x1280 之类，随设备和方向变
 所以想点哪个按钮，尽量把它的文字写全（`tap 安装插件` 而不是 `tap 安装`）。
 点不到时先看 `find` 打印出来的候选列表，排序后的第一个才是会被点的那个。
 
-## 六个实测出来的坑
+## 七个实测出来的坑
 
 1. **`dump` 要 2.4 秒**（在 1080x1920 的设备上实测 —— 这个数是**耗时**，随分辨率和
    界面复杂度变，别当常数；更要紧的是它**不是**本机的分辨率，见上面「动坐标之前
@@ -89,6 +89,14 @@ adb -s $ADB_DEVICE shell wm size     # 720x1280 之类，随设备和方向变
    设备上装一个 `clipper` 之类的 App，要么绕开：挑那个入口旁边的另一条路
    （例如「从网址…」+ 本机 `python -m http.server` + `adb reverse`，
    见 `tools/mock-llm-server.py` 的用法）。
+
+7. **`dump` 里的 `(xxx)` 是一对**打印时加上的**括号**，不是字符串本身。
+   `show()` 把 `content-desc` 渲染成 `(设置)`，于是照着 dump 敲
+   `tap "(设置)"` 会得到「没找到」—— 而**错误提示紧接着打印出来的那张列表里
+   `(设置)` 赫然在列**。这个自相矛盾的输出实测把人绕住过：明明屏幕上就有，
+   工具却说没有，第一反应是「坐标/树读错了」，然后去查一个不存在的问题。
+   现在 `find`/`tap` 会把关键字两侧的括号剥掉再匹配一次，所以 `tap 设置`
+   和 `tap "(设置)"` 都能用；拿不准时**用不带括号的那个**。
 """
 
 import os
@@ -256,13 +264,24 @@ def main():
         print("需要一个关键字，例如： python tools/ui.py find 新建对话", file=sys.stderr)
         sys.exit(2)
 
+    # `dump` 把 content-desc 显示成 `(设置)` —— 那对括号是 `show()` 打印时加的，
+    # **不是字符串本身**。照着 dump 敲 `tap "(设置)"` 会「没找到」，而错误提示
+    # 打印出来的列表里 `(设置)` 又赫然在列（见 docstring 坑 7）。
+    # 所以这里把两侧的括号剥掉再试一次，两种写法都能用。
+    bare = needle[1:-1] if len(needle) >= 2 and needle[0] == "(" and needle[-1] == ")" else needle
+
     hits = [
         n for n in items
-        if needle in n["text"] or needle in n["desc"]
+        if any(needle in f or bare in f for f in (n["text"], n["desc"]) if f)
     ]
     if not hits:
         print(f"没找到 {needle!r}。当前界面上的文字：")
         show([n for n in items if n["text"] or n["desc"]], with_bounds)
+        if bare != needle:
+            print(f"\n（已按 {bare!r} 找过一次，也没有。）")
+        else:
+            print("\n提示：dump 里 `(xxx)` 这种带圆括号的是 content-desc，括号是打印时加的，")
+            print("      匹配时写不带括号的那个：`tap 设置`，不是 `tap (设置)`。")
         sys.exit(1)
 
     # 按「有多像目标」排序，`tap` 才会点到按钮而不是碰巧含这个词的说明文案。
