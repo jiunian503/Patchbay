@@ -45,8 +45,39 @@ Android 只认一个签名 —— **密钥丢了，所有老用户只能卸载�
 | `patchbay-release.jks` | 密钥本身 |
 | 那个口令 | **只备份 `.jks` 等于没备份** |
 
-建议：① 密码管理器的文件附件（Bitwarden / 1Password 都支持）；② 另一台机器或加密 U 盘。
-**别只放在这台机器上。**
+**第一处：已做（2026-09-20）**
+
+```
+D:\Patchbay-发布密钥备份\
+    patchbay-release.jks   密钥库本身
+    口令.txt                口令 + keyAlias + 自查命令
+    README.txt              这是什么 / 丢了会怎样 / 怎么验 / 还差什么
+```
+
+（`D:` 是那块卷标为「工具」的盘。）
+
+**第二处：还没做** —— 上面那处在同一台机器的同一块盘上，**不构成第二处**。
+放密码管理器的文件附件（Bitwarden / 1Password 都支持）、另一台机器、或加密 U 盘。
+
+> ⚠️ **备份不是「拷过去就算数」—— 要能证明它可用。** 三条判据，缺一不可：
+>
+> 1. **拷贝完整**：`sha256sum` 两边一致
+> 2. **备份自足**：只用备份目录里的 `.jks` + 口令跑
+>    `keytool -list -v -keystore <备份的.jks> -storepass <备份里的口令>`，
+>    能列出别名为 `patchbay` 的证书
+> 3. **指纹对得上线上**：`keytool` 报的证书 SHA-256，等于
+>    `apksigner verify --print-certs <已发布的 apk>` 报的那个 —— 说明备的就是
+>    签过 v1.0 / v1.1 的那把钥匙
+>
+> 想再硬一点就真签一次（**在 APK 的副本上**，别动原件）：
+>
+> ```bash
+> cp dist/patchbay-1.1/patchbay-1.1.apk /tmp/t.apk
+> "$ANDROID_HOME/build-tools/36.1.0/apksigner.bat" sign \
+>   --ks <备份的.jks> --ks-pass pass:<口令> --ks-key-alias patchbay --key-pass pass:<口令> /tmp/t.apk
+> ```
+>
+> 退出码 0 = **私钥真的可用**，这份备份能签出「老用户装得上」的更新包。
 
 ### 3. 建 `keystore.properties`
 
