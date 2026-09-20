@@ -243,4 +243,11 @@ dependencies {
   // haze / haze-blur / haze-blur-materials 好几个。为什么钉在 1.6.10
   // 而不是更新的版本，见 libs.versions.toml 里那段注释。
   implementation(libs.haze)
+
+  // 脚本插件的 JS 引擎（QuickJS 的 Android 打包）。
+  //
+  // **只加在 :app** —— 它带四个 ABI 的原生库，是 AAR；而 `:plugin` 必须保持
+  // 纯 JVM（§44 铁律）。所以 `:plugin` 里只声明一个窄接口，实现放在这里注入。
+  // 选型理由与两个改不掉的短板见 libs.versions.toml 里那段注释。
+  implementation(libs.quickjs.android)
 }

@@ -4,7 +4,7 @@
  * 脚本插件入口。
  *
  * 宿主约定：
- *   - 必须导出 async run(input, host)，返回值需可 JSON 序列化。
+ *   - 必须导出 **同步** 的 run(input, host)，返回值需可 JSON 序列化。
  *   - input 是模型按 parameters 填好的参数对象。
  *   - host 是受权限约束的宿主能力集合，插件拿不到清单里没声明的东西：
  *       host.http(request)      受 permissions.network 白名单约束
@@ -12,13 +12,22 @@
  *       host.settings           用户在安装时填的配置
  *       host.log(msg)           写入插件日志，便于排查
  *
- * 铁律：本文件必须是**纯 JS、零依赖**。
+ * ## 为什么是同步，不是 async（别照着别处的写法改成 async）
  *
- * 运行时是 QuickJS（不是 Node）：**没有 npm，连 `require` 都没有**，所有逻辑得自己写；
- * 沙箱里也没有 IO，要联网只能调 host.http。所以上面那句「纯 JS」不是风格偏好，
- * 是唯一可行的写法 —— 顺带一提，Android 上运行时下载的 .so 也无法 dlopen
- * （targetSdk≥29 被 SELinux 拦），带原生扩展的包（node-pty、sharp、
- * better-sqlite3…）本来也用不了。
+ * QuickJS 里没有事件循环，宿主也不会去 drain 微任务队列 —— 一个 `async` 函数的
+ * 后半段**永远不会执行**，它返回的 Promise 也永远不 resolve（宿主拿到的是 `{}`）。
+ * 这是真机实测的，不是推断：`globalThis.__done` 从未被赋值、收尾那句 `host.log`
+ * 从未打印，两个独立信号一致。
+ *
+ * `host.*` 全是**同步阻塞**调用：JS 线程会等 Java 把活干完再往下走。
+ *
+ * ## 铁律：本文件必须是**纯 JS、零依赖**
+ *
+ * 运行时是 QuickJS（不是 Node）：**没有 npm**，宿主只提供 `module.exports` 与
+ * `require` 这两个 CommonJS 的基本件，别指望任何第三方包。沙箱里也没有 IO，
+ * 要联网只能调 `host.http`。所以上面那句「纯 JS」不是风格偏好，是唯一可行的写法 ——
+ * 顺带一提，Android 上运行时下载的 .so 也无法 dlopen（targetSdk≥29 被 SELinux 拦），
+ * 带原生扩展的包（node-pty、sharp、better-sqlite3…）本来也用不了。
  */
 
 function parseCsv(text) {
@@ -91,10 +100,10 @@ function stats(values) {
 }
 
 module.exports = {
-  async run(input, host) {
+  run(input, host) {
     let text = input.csv;
     if (!text && input.path) {
-      text = await host.fs.readText(input.path);
+      text = host.fs.readText(input.path);
     }
     if (!text) {
       throw new Error("必须提供 csv 文本或 path 之一");

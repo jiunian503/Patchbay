@@ -394,7 +394,22 @@ data class ScriptEntry(
     /** 入口 JS 文件相对路径。 */
     val main: String,
     val runtime: ScriptRuntimeKind = ScriptRuntimeKind.QuickJs,
+
+    /**
+     * 沙箱进程的堆上限（MB）。
+     *
+     * **进程内做不到**（见 [ScriptRuntimeKind] 的「两条上限只能靠进程隔离兑现」）——
+     * 它由沙箱自己盯着堆用量、超了就自杀来实现。所以它不是「建议值」，
+     * 而是宿主真会执行的阈值：写 32 就是 32。
+     */
     val memoryLimitMb: Int = 128,
+
+    /**
+     * 一次调用的墙钟上限（毫秒）。
+     *
+     * 同样靠进程隔离兑现：超时由调用方**杀掉沙箱进程**实现 —— 解释器内部没有任何
+     * 可用的中断入口，实测 `while(true)` 会把引擎线程永久占死、连 `close()` 都不返回。
+     */
     val timeoutMs: Long = 30_000,
 )
 
@@ -409,16 +424,33 @@ data class ScriptEntry(
  * 理由是**沙箱边界**：Node 会给插件一个完整进程，它自带 `net` / `http`，能绕开
  * 宿主的白名单直连任意地址 —— 「主机名全等匹配、自己跟重定向、跨主机剥
  * Authorization」（§45）那一整套立刻失效。QuickJS 没有 IO 能力，插件要联网只能
- * 调宿主注入的 `fetch`，安全模型原样延续；顺带还能设 interrupt handler 打断
- * `while(true)`。代价是作者没有 npm —— 但插件本来就该是薄适配层。
+ * 调宿主注入的 `http`，安全模型原样延续。代价是作者没有 npm ——
+ * 但插件本来就该是薄适配层。
  *
  * 枚举里多一个永不实现的值，正是这个项目一直在清的那种「声明了但没人消费」。
  * 与其留着它当陷阱（照着默认值去装 Node），不如现在就换掉。
  *
+ * ## 两条上限只能靠**进程隔离**兑现（真机实测，见 §82）
+ *
+ * [ScriptEntry.memoryLimitMb] 与 [ScriptEntry.timeoutMs] 在进程内**做不到**。
+ * 三个候选绑定的 Java 层都没有 `JS_SetMemoryLimit` 的出口，也都没有可用的中断入口
+ * （唯一的中断实现 `EventQueue.interrupt()` 是**包级私有**的，外部拿不到）。
+ * 实测：`while(true)` 会把引擎线程永久占死，调用线程 `Object.wait` 卡住，
+ * 连 `close()` 都不返回 —— 运行时彻底作废，而且那个线程会一直烧一个核。
+ *
+ * 所以这两个字段**保留**，但它们的真实语义是「沙箱进程的上限」：
+ * 超时由调用方杀掉沙箱进程实现，内存由沙箱自己盯着堆用量自杀实现。
+ * 只有进程隔离能让它们从「声明」变成「消费」。
+ *
+ * ## 调用约定是**同步**的（也是实测）
+ *
+ * QuickJS 里没有事件循环，宿主也不 drain 微任务队列 —— 插件导出 `async run()`
+ * 的话，函数后半段永远不会执行、返回的 Promise 永远不 resolve（宿主拿到 `{}`）。
+ * 所以约定是同步 `run(input, host)`，`host.*` 也都是同步阻塞调用。
+ *
  * ## 实现状态
  *
- * `PluginHost` 对 `runtime: "script"` 目前统一报「宿主还不支持」（§47），
- * 这个值现在**没有任何消费点**。它先在这里把决策钉住，实现时照着它写。
+ * `PluginHost` 对 `runtime: "script"` 目前仍统一报「宿主还不支持」（§47）。
  */
 @Serializable
 enum class ScriptRuntimeKind {
