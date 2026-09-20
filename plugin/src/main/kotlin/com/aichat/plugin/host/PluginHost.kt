@@ -22,6 +22,9 @@ import com.aichat.plugin.runtime.mcp.McpToolSnapshot
 import com.aichat.plugin.runtime.mcp.mcpCacheFingerprint
 import com.aichat.plugin.runtime.mcp.toDescriptor
 import com.aichat.plugin.runtime.mcp.toSnapshot
+import com.aichat.plugin.runtime.script.ScriptRequest
+import com.aichat.plugin.runtime.script.ScriptRuntime
+import com.aichat.plugin.runtime.script.ScriptTool
 import com.aichat.plugin.template.Placeholder
 import com.aichat.plugin.template.Placeholders
 import kotlinx.coroutines.CancellationException
@@ -155,18 +158,28 @@ data class McpRefresh(
  */
 object PluginHost {
 
-    /** 装配一个插件的全部工具。**同步，不联网** —— MCP 的工具清单从缓存里读。 */
-    fun tools(plugin: InstalledPlugin, client: OkHttpClient): PluginTools {
+    /**
+     * 装配一个插件的全部工具。**同步，不联网** —— MCP 的工具清单从缓存里读。
+     *
+     * [scripts] 是脚本运行时的宿主实现。默认值 [ScriptRuntime.Unavailable] 让现有
+     * 调用点（以及 25 处测试）一行都不用改，而且「没接引擎」时用户看到的仍是
+     * 明确的「宿主还不支持」，不是静默的空列表 —— 理由见 [ScriptRuntime.Unavailable]。
+     */
+    fun tools(
+        plugin: InstalledPlugin,
+        client: OkHttpClient,
+        scripts: ScriptRuntime = ScriptRuntime.Unavailable,
+    ): PluginTools {
         if (!plugin.enabled) return PluginTools(plugin, emptyList(), emptyList())
 
         return when (plugin.manifest.runtime) {
             PluginRuntimeKind.Declarative -> declarative(plugin, client)
             PluginRuntimeKind.Mcp -> mcp(plugin, client)
+            PluginRuntimeKind.Script -> script(plugin, scripts)
 
-            // 另外两种形态宿主还没实现。这里**明确报出来**而不是返回空列表：
+            // native 形态宿主还没实现。这里**明确报出来**而不是返回空列表：
             // 「装了一个插件，工具列表里什么都没有，也没有任何提示」
             // 是最难查的一种状态 —— 用户会怀疑是安装没成功
-            PluginRuntimeKind.Script,
             PluginRuntimeKind.Native,
             -> PluginTools(
                 plugin = plugin,
@@ -181,6 +194,74 @@ object PluginHost {
                 ),
             )
         }
+    }
+
+    /**
+     * 脚本形态的装配。
+     *
+     * 装配期只**读源码**、不跑脚本 —— 「跑一次才知道行不行」的话，插件详情页上
+     * 那句「这个插件能用」就退化成「你调一次试试」，而详情页要给的正是前者。
+     */
+    private fun script(plugin: InstalledPlugin, scripts: ScriptRuntime): PluginTools {
+        // 顺序要紧：**先看引擎，再看文件**。反过来的话，宿主没装引擎时用户看到的
+        // 会是「入口文件读不到」—— 而真实原因是这个宿主压根没有脚本运行时，
+        // 两者的出路完全不同（一个让他去查文件，一个让他等宿主升级）。
+        if (!scripts.available) {
+            return PluginTools(
+                plugin = plugin,
+                tools = emptyList(),
+                problems = listOf(
+                    ManifestProblem(
+                        "$.runtime",
+                        "当前版本的宿主还不支持 script 运行形态，这个插件暂时不会提供任何工具。" +
+                            "它的清单是合法的，等宿主支持后可以直接用。",
+                        severity = ManifestProblem.Severity.Warning,
+                    ),
+                ),
+            )
+        }
+
+        val entry = plugin.manifest.entry.script
+            ?: return fail(plugin, "$.entry.script", "runtime 是 script 但没有 script 段，无法装配。")
+
+        // 下面这处「校验已经排除了」的情况仍然要挡：PluginHost 是 public API，
+        // 不能假设调用方一定先跑过 ManifestParser（和 declarative 分支同一个理由）
+        if (plugin.manifest.tools.isEmpty()) {
+            return fail(plugin, "$.tools", "一个插件至少要暴露一个工具，否则装进来没有任何作用。")
+        }
+
+        // 源码在**装配期**读好、放进请求里。于是「入口文件缺失」是一条装配期问题，
+        // 会显示在插件详情页；留到执行时才发现的话，用户第一次用就吃一个看不懂的错。
+        val source = scripts.readSource(plugin.manifest.id, entry.main)
+            ?: return fail(
+                plugin,
+                "$.entry.script.main",
+                "读不到插件的入口脚本「${entry.main}」。这个插件的文件可能没装全，重装一次试试。",
+            )
+
+        val tools = plugin.manifest.tools.map { spec ->
+            ScriptTool(
+                pluginName = plugin.manifest.name,
+                spec = spec,
+                template = ScriptRequest(
+                    pluginId = plugin.manifest.id,
+                    pluginName = plugin.manifest.name,
+                    entryFile = entry.main,
+                    source = source,
+                    toolName = spec.name,
+                    // 模型给的参数要到调用时才有，这里留空、由 ScriptTool 填
+                    inputJson = "",
+                    settings = plugin.settings.asMap(),
+                    network = plugin.manifest.permissions.network,
+                    filesystem = plugin.manifest.permissions.filesystem,
+                    timeoutMs = entry.timeoutMs,
+                    memoryLimitMb = entry.memoryLimitMb,
+                ),
+                runtime = scripts,
+            )
+        }
+
+        return PluginTools(plugin = plugin, tools = tools, problems = emptyList())
     }
 
     /**

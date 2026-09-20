@@ -72,13 +72,21 @@ class PluginHostTest {
     // ---------------------------------------------------------------- 还没实现的运行形态
 
     @Test
-    fun `script 运行形态给出警告而不是静默空列表`() {
+    fun `不传脚本引擎时 script 插件给出警告而不是静默空列表`() {
+        // **这条测的是默认参数。** 现有调用点（以及 25 处测试）都不传第三个参数，
+        // 它们看到的必须是明确的「宿主还不支持」，不是静默的空工具列表。
+        // 各条失败路径在 ScriptHostTest —— 这里只钉住默认值。
+        //
+        // 这是一次**行为改变**：以前 script 和 native 一样走「运行形态还没实现」，
+        // 现在它有了实现，但引擎得由 :app 注入（:plugin 必须保持纯 JVM，§44）。
+        // 所以「不传」和「传了 Unavailable」是同一件事，而它仍然是可用的默认值 ——
+        // 因为宿主**没有**脚本引擎时，那句话就是事实。
         val set = tools(Manifests.otherRuntime("pub.a.script", "script"))
 
         assertTrue(set.tools.isEmpty())
         val problem = set.problems.single()
         assertEquals("$.runtime", problem.path)
-        assertTrue(problem.message, problem.message.contains("script"))
+        assertTrue("要说清是哪种运行形态不支持", problem.message.contains("script"))
         assertTrue("要说清是宿主还没实现，不是作者写错了", problem.message.contains("不支持"))
         assertEquals(
             "作者没写错，不该报成错误",

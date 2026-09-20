@@ -133,6 +133,61 @@ object Manifests {
         append("}")
     }
 
+    /**
+     * 一份脚本清单。
+     *
+     * [main] 是**真值**，不是原始 JSON 片段 —— 要测非法路径（`../x.js`、
+     * 带反斜杠）的用例走 [ManifestParserTest] 里手写的 JSON：那些值在 Kotlin
+     * 字符串里没法干净地写出来（反斜杠要过两层转义），硬塞进来只会让这个
+     * 构造器多一个没人看得懂的开关。
+     *
+     * [extraEntry] 是原始 JSON 片段，用来补 `timeoutMs` / `memoryLimitMb`。
+     */
+    fun script(
+        id: String = "pub.test.script",
+        name: String = "脚本插件",
+        version: String = "1.0.0",
+        network: List<String> = listOf("api.example.com"),
+        filesystem: String = "read",
+        settings: String = "",
+        main: String = "index.js",
+        tools: List<String> = listOf("csv_stats"),
+        extraEntry: String = "",
+        toolBody: (String) -> String = { scriptToolSpec(it) },
+    ): String = buildString {
+        append("{")
+        append("\"id\":\"$id\",")
+        append("\"name\":\"$name\",")
+        append("\"version\":\"$version\",")
+        append("\"runtime\":\"script\",")
+        append("\"permissions\":{\"network\":${network.jsonArray()},\"filesystem\":\"$filesystem\"},")
+        if (settings.isNotEmpty()) append("\"settings\":{$settings},")
+        append("\"entry\":{\"script\":{\"main\":\"$main\"$extraEntry}},")
+        append("\"tools\":[${tools.joinToString(",") { toolBody(it) }}]")
+        append("}")
+    }
+
+    /**
+     * 一个脚本工具。
+     *
+     * 和 [toolSpec] 不同，这里**没有 `request` 段** —— 脚本工具干什么由 JS
+     * 自己决定，清单里只声明「有这么个工具、参数长这样」。所以确认开关也没法
+     * 按 HTTP 方法判断（宿主看不到请求），`null` 会落到 `true`。
+     */
+    fun scriptToolSpec(
+        name: String,
+        description: String = "脚本工具 $name",
+        parameters: String = """{"type":"object","properties":{"arg":{"type":"string"}}}""",
+        confirmation: String = "",
+    ): String = buildString {
+        append("{")
+        append("\"name\":\"$name\",")
+        append("\"description\":\"$description\",")
+        append("\"parameters\":$parameters")
+        if (confirmation.isNotEmpty()) append(",\"requiresConfirmation\":$confirmation")
+        append("}")
+    }
+
     /** 非声明式清单（用来测「运行形态还没实现」的分支）。 */
     fun otherRuntime(id: String, runtime: String): String = when (runtime) {
         "script" -> """

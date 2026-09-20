@@ -213,8 +213,13 @@ object ManifestParser {
                 checkEntryHeaders(d.headers, m, "$.entry.declarative.headers", out)
             }
 
-            PluginRuntimeKind.Script -> if (e.script == null) {
-                out += ManifestProblem("$.entry.script", "runtime 是 script，但 entry 里没有 script 段（至少要给 main）。")
+            PluginRuntimeKind.Script -> {
+                val s = e.script
+                if (s == null) {
+                    out += ManifestProblem("$.entry.script", "runtime 是 script，但 entry 里没有 script 段（至少要给 main）。")
+                } else {
+                    checkScriptMain(s.main, out)
+                }
             }
 
             PluginRuntimeKind.Mcp -> if (e.mcp == null) {
@@ -233,6 +238,46 @@ object ManifestParser {
                 )
             }
         }
+    }
+
+    /**
+     * 入口脚本的相对路径。
+     *
+     * ## 为什么这条校验必须有
+     *
+     * [ScriptEntry.main] 会被宿主拿去**读文件**。写 `../../../../data/data/<包名>/databases/app.db`
+     * 就是一个读用户私有数据的尝试，而宿主读到的内容会进脚本、最终可能进模型。
+     * 这条边界（§45「读用户文件」）不能只靠读文件那一侧的守卫 ——
+     * 那一侧报出来的错是「读不到这个文件」，作者拿着这句话不会知道自己写错了什么，
+     * 用户也看不出这是一次越界尝试。
+     *
+     * 校验层拦下来的好处是：**安装时**就报出来，并且报的是「路径不能跳出插件目录」。
+     *
+     * 允许子目录（`lib/util.js`）—— 入口在子目录里是正常写法，插件目录本来就是
+     * 一整棵作者自己的树。禁掉的是「跳出这棵树」的写法。
+     */
+    private fun checkScriptMain(main: String, out: MutableList<ManifestProblem>) {
+        val at = "$.entry.script.main"
+
+        fun bad(why: String) {
+            out += ManifestProblem(
+                at,
+                "入口脚本路径「$main」$why。" +
+                    "必须是一个**相对插件目录**的路径，例如 index.js 或 lib/main.js。",
+            )
+        }
+
+        if (main.isBlank()) return bad("是空的")
+        // 反斜杠在 Android 上是合法文件名字符，不是分隔符 —— 放过去的话
+        // `lib\main.js` 会被当成一个名字里带反斜杠的文件，作者在 Windows 上
+        // 试出来的写法到真机上就找不到文件
+        if (main.contains('\\')) return bad("里有反斜杠（Android 的路径分隔符是正斜杠 `/`）")
+        if (main.startsWith("/")) return bad("是绝对路径")
+        if (main.contains("://")) return bad("像个地址")
+        // `a/../b` 这种其实没跳出去，但放行它要先把路径规范化一遍，
+        // 而规范化只要实现得和读文件那一侧不完全一致就会漏 —— 索性全禁
+        if (main.split('/').any { it == ".." }) return bad("里有用 `..` 跳出插件目录的段")
+        if (main.split('/').any { it.isEmpty() }) return bad("里有空的路径段")
     }
 
     private fun checkBaseUrl(raw: String, out: MutableList<ManifestProblem>) {

@@ -391,7 +391,13 @@ enum class AuthType {
 
 @Serializable
 data class ScriptEntry(
-    /** 入口 JS 文件相对路径。 */
+    /**
+     * 入口 JS 文件相对路径，如 `index.js` 或 `lib/main.js`。
+     *
+     * **相对插件目录**，且不允许 `..`、反斜杠、绝对路径 —— 由 [ManifestParser]
+     * 在安装时拦下（理由见那边的 `checkScriptMain`）。读文件那一侧还会再挡一次，
+     * 两层都要有：校验层给作者一句能改的话，读取层挡住绕过校验的调用点。
+     */
     val main: String,
     val runtime: ScriptRuntimeKind = ScriptRuntimeKind.QuickJs,
 

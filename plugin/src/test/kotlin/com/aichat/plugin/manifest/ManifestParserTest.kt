@@ -696,6 +696,64 @@ class ManifestParserTest {
         )
     }
 
+    /**
+     * 一份最小脚本清单，[mainJson] 是**原始 JSON 值**（要带引号）。
+     *
+     * 之所以不接一个已经解码好的 Kotlin String：这条校验要测的正是「作者在
+     * JSON 里写出来的那个字符串」，而反斜杠要过 JSON 和 Kotlin 两层转义。
+     * 接 String 的话，「作者写了两个反斜杠」这种情况根本表达不出来 ——
+     * 而那恰好是这条校验存在的理由之一。
+     */
+    private fun scriptWithMain(mainJson: String): String =
+        """{"id":"pub.test.script","name":"脚本插件","version":"1.0.0","runtime":"script",
+           "permissions":{"network":[],"filesystem":"read"},
+           "entry":{"script":{"main":$mainJson}},
+           "tools":[{"name":"csv_stats","description":"统计","parameters":{"type":"object","properties":{}}}]}"""
+            .trimIndent()
+
+    @Test
+    fun `script 入口路径不能跳出插件目录`() {
+        // 宿主会拿这个路径去读文件，而读到的内容会进脚本、最终可能进模型。
+        // 放过去的话，一份清单就能读到 App 的私有数据库（§45「读用户文件」）
+        assertRejected(scriptWithMain("\"../../../../data/data/pkg/databases/app.db\""), "跳出插件目录")
+    }
+
+    @Test
+    fun `script 入口路径不能是绝对路径`() {
+        assertRejected(scriptWithMain("\"/etc/hosts\""), "绝对路径")
+    }
+
+    @Test
+    fun `script 入口路径不能带反斜杠`() {
+        // Android 的路径分隔符是 `/`，反斜杠是**合法文件名字符**。
+        // 放过去的话 `lib\main.js` 会被当成一个名字里带反斜杠的文件，
+        // 作者在 Windows 上试出来的写法到真机上就找不到文件
+        assertRejected(scriptWithMain("\"lib\\\\main.js\""), "反斜杠")
+    }
+
+    @Test
+    fun `script 入口路径不能为空`() {
+        assertRejected(scriptWithMain("\"\""), "是空的")
+    }
+
+    @Test
+    fun `script 入口路径不能有空的路径段`() {
+        // `a//b` 在多数文件系统上等于 `a/b`，但这里不放行：让「看起来能跑」
+        // 的写法在安装时就红掉，比等到运行时读不到文件好查
+        assertRejected(scriptWithMain("\"lib//main.js\""), "空的路径段")
+    }
+
+    @Test
+    fun `script 入口路径可以用子目录`() {
+        // **对照组**：上面几条禁的是「跳出插件目录」，不是「用子目录」。
+        // 少了这一条，一个把路径校验写成「不许有斜杠」的改动也能全绿
+        // 用 `Manifests.parse` 而不是本类的 `parse`：后者返回的是检查结果
+        // （可能带着若干问题），这里要的是一个已经确认可用的清单对象
+        val manifest = Manifests.parse(scriptWithMain("\"lib/main.js\""))
+
+        assertEquals("lib/main.js", manifest.entry.script?.main)
+    }
+
     @Test
     fun `工具名不合规时报错`() {
         assertRejected(Manifests.declarative(tools = listOf("BadName")), "不是合法的工具名")

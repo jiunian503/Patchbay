@@ -24,6 +24,16 @@ class PluginSettings(private val values: Map<String, String> = emptyMap()) {
     /** 有哪些键是有值的。用于「还缺哪些配置」的提示。 */
     fun presentKeys(): Set<String> = values.filterValues { it.isNotBlank() }.keys
 
+    /**
+     * 全部**有值**的键值对。
+     *
+     * 给脚本沙箱用：它要跨进程，所以配置得序列化过去；而**空串不能过去** ——
+     * 「用户填了空」和「用户没填」在插件里必须是同一件事，否则脚本会看到一个
+     * 空字符串并当成真值（`Authorization: Bearer ` 就是这么来的，见 [value]）。
+     * 这里和 [value] 用同一条规则，就是为了让两处不会漂移。
+     */
+    fun asMap(): Map<String, String> = values.filterValues { it.isNotBlank() }
+
     companion object {
         val Empty = PluginSettings()
     }
