@@ -187,6 +187,11 @@ $G :app:assembleRelease --max-workers=2 --no-configuration-cache
 > 而真实用户大多是从上一版升上来的 —— 所以两条都要跑。
 >
 > 两条都验完**都要 `uninstall`**，否则会挡住后面所有 debug 安装。
+>
+> **另外，release 上要单独走一遍「设置 → 关于 → 检查更新」** —— 它打网络 + 走
+> `kotlinx.serialization`，而 R8 要是把 `@SerialName` 剥掉，字段名会退回 Kotlin
+> 属性名、`tag_name` 匹配不上，界面说「看不懂对方返回的内容」。**这个失败只在
+> release 上出现，debug 包永远绿**（debug 不混淆）。判据见 SKILL.md **§92 第十一节**。
 
 ### 7. 归档 APK + mapping
 
@@ -258,6 +263,22 @@ GH_TOKEN="$TOKEN" "$GH" release create v1.1 \
   dist/patchbay-1.1/patchbay-1.1.apk \
   dist/patchbay-1.1/mapping.txt
 ```
+
+> ⚠️ **别加 `--prerelease`，也别用 `--draft`。** 上面这条命令创建出来的是
+> 「最新发布」，而 App 里的「检查更新」打的是 `/releases/latest` ——
+> 它**只返回最新的非草稿、非预发布**那一版。加 `--prerelease` 的后果最隐蔽：
+> 不是「查不到」，而是**退回上一版** —— 于是用户看到的「有新版本 v1.1」
+> 指向一个**更旧的** tag。草稿同理（草稿根本不出现）。
+>
+> 另外两条同样静默的前提：
+>
+> - **仓库必须保持 PUBLIC** —— 未认证的请求打私有仓库一律 404，
+>   用户看到的是「没找到发布版本」，像是这个仓库从没发布过
+> - **tag 要能被解析**（`v1.2` / `1.2` 都行，`release-1.2` 不行）。解析不出来时
+>   界面说的是「比不了」而不是「已是最新」—— 这是有意的（宁可说不知道，
+>   不说一句确定的错话）
+>
+> 这三条对着 `AppContainer.releases` 那个**写死**的地址，两边写了同一份说明。
 
 > Release 说明手写在 `dist/patchbay-<version>/NOTES.md` —— 和它描述的那份 APK 放在一起，
 > 半年后翻出来是一套的。**脚本不生成它，也不覆盖它**（`--force` 重归档会连它一起删掉，
