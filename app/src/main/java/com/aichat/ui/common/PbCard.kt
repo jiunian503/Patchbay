@@ -2,10 +2,12 @@ package com.aichat.ui.common
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,6 +110,35 @@ fun PbHintCard(
                 )
             }
         }
+    }
+}
+
+/**
+ * 空状态：**居中的一张说明卡**，而不是一行悬在空白里的灰字。
+ *
+ * 一行灰字在视觉上等于「这里什么都没有，别看了」；一张卡会说明本来该有什么、
+ * 以及怎么让它出现。两种做法在同一个 App 里并存的话，用户会把「灰字」读成
+ * 「这一块坏了」。
+ *
+ * 抽到这里是因为它已经在两处出现：搜索页原来有个私有的 `HintState`，抽屉里的
+ * 空状态又要写一遍同样的 Box + 居中 + 左右留白。**卡片的样式**由 [PbHintCard]
+ * 保证一致，**摆放方式**由这里保证一致 —— 两件事都该有唯一出处。
+ *
+ * [modifier] 默认铺满并居中。放在 `Column` 里（比如抽屉）时传
+ * `Modifier.weight(1f)`，别用 `fillMaxSize()` —— 后者会跟兄弟节点抢高度。
+ */
+@Composable
+fun PbEmptyState(
+    icon: ImageVector,
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier.fillMaxSize(),
+) {
+    Box(
+        modifier = modifier.padding(horizontal = Space.lg),
+        contentAlignment = Alignment.Center,
+    ) {
+        PbHintCard(icon = icon, title = title, body = body)
     }
 }
 

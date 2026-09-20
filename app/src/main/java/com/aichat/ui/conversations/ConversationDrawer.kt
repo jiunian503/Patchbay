@@ -48,6 +48,7 @@ import com.aichat.chat.ConversationSummary
 import com.aichat.theme.MonoLabelStyle
 import com.aichat.theme.Space
 import com.aichat.ui.common.PbButton
+import com.aichat.ui.common.PbEmptyState
 import com.aichat.ui.common.PbIcons
 
 /**
@@ -191,14 +192,23 @@ fun ConversationDrawer(
                         CircularProgressIndicator()
                     }
 
+                // 空状态用 PbEmptyState（内部就是 PbHintCard + 居中），
+                // 跟搜索页 / 服务商列表 / 插件列表是同一套。
+                //
+                // 原来这里是一行裸 Text("还没有对话")，而问题**出在它没说的那半句上**：
+                // 用户此刻正待在一个对话里（对话页就在旁边），列表却说一个都没有 ——
+                // 因为会话行要等第一条消息发出去才由 `ensureConversation` 创建
+                //（见 Navigation.kt 里 startConversationId 那段注释），空对话不入库。
+                // 光说「还没有对话」会让人以为 App 没认出他正在用的那个。
                 items.isEmpty() ->
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "还没有对话",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+                    PbEmptyState(
+                        icon = PbIcons.Chat,
+                        title = "还没有对话",
+                        body = "现在这个对话还没发过消息，所以还不在列表里 —— " +
+                            "发一条，它就会出现。",
+                        // 在 Column 里：weight 而不是 fillMaxSize()，否则会跟兄弟抢高度
+                        modifier = Modifier.weight(1f),
+                    )
 
                 else ->
                     LazyColumn(

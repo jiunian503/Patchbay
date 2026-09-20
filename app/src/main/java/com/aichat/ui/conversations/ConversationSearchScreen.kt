@@ -41,7 +41,7 @@ import com.aichat.domain.text.textWindow
 import com.aichat.theme.Space
 import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbCard
-import com.aichat.ui.common.PbHintCard
+import com.aichat.ui.common.PbEmptyState
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbScaffold
 
@@ -145,14 +145,16 @@ fun ConversationSearchScreen(
                 // 「还没搜」和「搜了没结果」必须分开说。合成一句「没有找到」的话，
                 // 用户刚进页面就会以为库里的消息搜不出来。
                 !state.searched -> {
-                    HintState(
+                    PbEmptyState(
+                        icon = PbIcons.Search,
                         title = "搜你以前的对话",
                         body = "输入关键词，回车开始搜。中文按字匹配，英文按整词匹配。",
                     )
                 }
 
                 state.hits.isEmpty() -> {
-                    HintState(
+                    PbEmptyState(
+                        icon = PbIcons.Search,
                         title = "没有找到",
                         body = "没有任何消息包含「${state.query}」。换个说法，或者少打几个字再试。",
                     )
@@ -196,17 +198,6 @@ fun ConversationSearchScreen(
                 }
             }
         }
-    }
-}
-
-/** 空状态。居中的一张说明卡，而不是一行悬在空白里的灰字。 */
-@Composable
-private fun HintState(title: String, body: String) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(horizontal = Space.lg),
-        contentAlignment = Alignment.Center,
-    ) {
-        PbHintCard(icon = PbIcons.Search, title = title, body = body)
     }
 }
 
