@@ -135,21 +135,16 @@ python tools/archive_release.py                # 验过了再归档
 
 **这一步目前是手工的**（本机没装 `gh` CLI）。
 
-`origin` 已经配好了（`https://github.com/jiunian503/patchbay.git`），但**仓库还没建**。
-到 GitHub 上新建一个仓库，然后：
+`origin` = `https://github.com/jiunian503/Patchbay.git`（**仓库名是大写 P**；GitHub 对
+大小写不敏感、会重定向，但配成一致更干净）。仓库已建好、代码已推上去。以后改完代码：
 
 ```bash
-git push -u origin master
+git push
 ```
 
-⚠️ **建仓库时别勾任何初始化文件**（README / .gitignore / LICENSE）—— 保持**空仓库**。
-勾了的话 GitHub 会先生成一个 commit，首次 push 会被拒：
-
-```
-! [rejected]  master -> master (fetch first)
-```
-
-那时候得先 `git pull --rebase origin master` 再 push。**不如一开始就别勾。**
+> ⚠️ 建仓库时**别勾任何初始化文件**（README / .gitignore / LICENSE）—— 保持**空仓库**。
+> 勾了的话 GitHub 会先生成一个 commit，首次 push 会被拒（`! [rejected] master -> master
+> (fetch first)`），那时得先 `git pull --rebase origin master` 再 push。
 
 用 **HTTPS 而不是 SSH**：这台机器 `~/.ssh/` 下只有 `known_hosts`、**没有密钥**，
 `git@github.com:...` 会直接报 `Permission denied (publickey)`。
