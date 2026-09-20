@@ -35,6 +35,36 @@ data class PluginManifest(
     val settings: Map<String, SettingSpec> = emptyMap(),
     val entry: PluginEntry = PluginEntry(),
     val tools: List<ToolSpec> = emptyList(),
+
+    /**
+     * 插件自带的文件：**相对路径 → 内容**。
+     *
+     * ## 为什么源码放在清单文档里，而不是一个目录或一个 zip
+     *
+     * 因为安装这个动作只有一条真正可用的路：**粘贴一份 JSON**
+     * （见 `PluginRepository.SOURCE_PASTE`）。这个 App 没有插件商店，
+     * 用户拿到一个插件的方式就是「从网页上复制那段文本」。
+     * 源码要是放在另一个文件里，这条路当场就断了 —— 用户没法粘贴一个目录。
+     *
+     * 放进来之后，一个插件就是**一份文档**：装它、升级它、卸载它都是对同一份
+     * 文本的一次操作，于是不会出现「清单换新了、文件还是旧的」，
+     * 也不会出现「卸载了但目录还在」。清单原文本来就整份存进
+     * `plugin.manifest_json`（见 `PluginEntity`），所以这**不需要任何 schema 迁移**。
+     *
+     * ## 代价与边界
+     *
+     * 清单从「几 KB 元数据」变成「几 KB 元数据 + 源码」，而 `ManifestParser`
+     * 每次装配都要重解析一遍。脚本插件的源码在几十 KB 量级，无所谓；
+     * 但**想打包几 MB 数据集的插件不该走这条路** —— 那是「载荷」不是「契约」，
+     * 两者该有不同的存放方式。所以校验层有一条总量上限（见 `ManifestParser`）。
+     *
+     * ## 只有 [PluginRuntimeKind.Script] 会消费它
+     *
+     * 别的运行形态声明了它只是白占体积（宿主不读），所以校验层给一条警告。
+     * 之所以留着字段、而不是按运行形态拆成两个模型：**清单文档只有一个形状**，
+     * 作者不该因为换了个 `runtime` 就换一套字段名。
+     */
+    val files: Map<String, String> = emptyMap(),
 )
 
 /**

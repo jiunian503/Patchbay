@@ -230,14 +230,18 @@ object PluginHost {
             return fail(plugin, "$.tools", "一个插件至少要暴露一个工具，否则装进来没有任何作用。")
         }
 
-        // 源码在**装配期**读好、放进请求里。于是「入口文件缺失」是一条装配期问题，
-        // 会显示在插件详情页；留到执行时才发现的话，用户第一次用就吃一个看不懂的错。
-        val source = scripts.readSource(plugin.manifest.id, entry.main)
-            ?: return fail(
+        // 源码从**清单自己**里取（`files`），不问引擎要。理由见 PluginManifest.files：
+        // 一个插件就是一份文档，装/升级/卸载都是对同一份文本的一次操作。
+        // 于是「入口文件读不到」不再是一条装配期问题 —— 它已经在校验层被拦下了
+        // （`checkEntryFileExists`）。这里留着是给绕过校验的调用方兜底。
+        if (entry.main !in plugin.manifest.files) {
+            return fail(
                 plugin,
                 "$.entry.script.main",
-                "读不到插件的入口脚本「${entry.main}」。这个插件的文件可能没装全，重装一次试试。",
+                "读不到插件的入口脚本「${entry.main}」。它不在清单的 files 里，" +
+                    "这个插件装的时候就不完整，重装一次试试。",
             )
+        }
 
         val tools = plugin.manifest.tools.map { spec ->
             ScriptTool(
@@ -247,7 +251,9 @@ object PluginHost {
                     pluginId = plugin.manifest.id,
                     pluginName = plugin.manifest.name,
                     entryFile = entry.main,
-                    source = source,
+                    // 整份带过去，不只入口那一份：多文件插件要靠它做模块解析
+                    // （`require('./lib/util.js')`），而且沙箱因此完全不用碰文件系统
+                    files = plugin.manifest.files,
                     toolName = spec.name,
                     // 模型给的参数要到调用时才有，这里留空、由 ScriptTool 填
                     inputJson = "",

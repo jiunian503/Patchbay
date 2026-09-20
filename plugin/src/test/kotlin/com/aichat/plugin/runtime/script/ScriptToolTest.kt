@@ -35,7 +35,7 @@ class ScriptToolTest {
         network: List<String> = emptyList(),
         filesystem: FilesystemScope = FilesystemScope.None,
         entryFile: String = FakeScriptRuntime.DEFAULT_ENTRY,
-        source: String = FakeScriptRuntime.DEFAULT_SOURCE,
+        files: Map<String, String> = mapOf(entryFile to FakeScriptRuntime.DEFAULT_SOURCE),
         toolName: String = "csv_stats",
     ) = ScriptTool(
         pluginName = "测试插件",
@@ -49,7 +49,7 @@ class ScriptToolTest {
             pluginId = "pub.test.script",
             pluginName = "测试插件",
             entryFile = entryFile,
-            source = source,
+            files = files,
             toolName = toolName,
             // 调用期才有的字段，装配期留空 —— 由 execute 填
             inputJson = "",
@@ -92,14 +92,27 @@ class ScriptToolTest {
     }
 
     @Test
-    fun `装配期读好的源码原样进请求`() = runBlocking {
+    fun `插件自带的全部文件都进请求`() = runBlocking {
         val runtime = FakeScriptRuntime()
-        tool(runtime, source = "exports.run = () => 'hi'").execute(buildJsonObject {})
+        tool(
+            runtime,
+            files = mapOf(
+                "index.js" to "exports.run = () => require('./lib/util.js').n()",
+                "lib/util.js" to "exports.n = () => 42",
+            ),
+        ).execute(buildJsonObject {})
 
-        // 源码在装配期读、执行期不再读文件：于是「入口文件缺失」是插件详情页上
-        // 的一条问题，而不是用户第一次调用时吃的错
-        assertEquals("exports.run = () => 'hi'", runtime.requests.single().source)
-        assertTrue("执行期不该再去碰文件系统", runtime.reads.isEmpty())
+        // **整份**过去，不只入口那一份：多文件插件要靠它做模块解析
+        // （`require('./lib/util.js')`），而只给入口的话那是「允许写却跑不起来」——
+        // 清单的路径规则明确允许子目录，两边必须一致。
+        //
+        // 顺带一个好副作用：沙箱完全不用碰文件系统就能跑插件，
+        // 于是「读用户文件」那条边界（§45）在脚本形态下压根不存在，
+        // 而不是靠沙箱里的一道守卫去挡
+        assertEquals(
+            setOf("index.js", "lib/util.js"),
+            runtime.requests.single().files.keys,
+        )
     }
 
     @Test

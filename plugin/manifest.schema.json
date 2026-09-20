@@ -99,6 +99,13 @@
       "items": {
         "$ref": "#/$defs/tool"
       }
+    },
+    "files": {
+      "type": "object",
+      "description": "插件自带的文件：相对路径 → 内容。script 插件把源码放在这里，entry.script.main 必须是其中一个键。之所以放在清单里而不是一个目录或 zip：安装这个 App 的插件只有一条真正可用的路 —— 粘贴一份 JSON。放进来之后一个插件就是一份文档，装/升级/卸载都是对同一份文本的一次操作。路径不许跳出插件目录（不许 ..、不许绝对路径、不许反斜杠），合计不许超过 256 KB。只有 script 形态会读它，别的形态声明了只会得到一条警告。",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "$defs": {

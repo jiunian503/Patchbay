@@ -15,7 +15,7 @@ import org.junit.Test
 /**
  * 脚本形态的装配。
  *
- * ## 这个文件里最值钱的一条是「没装引擎时不许去读源码」
+ * ## 这个文件里最值钱的一条是「引擎没装时报的是宿主不支持」
  *
  * 两个失败长得几乎一样，出路却完全相反：
  *
@@ -24,11 +24,17 @@ import org.junit.Test
  * | 宿主没有脚本运行时 | 等宿主升级 |
  * | 插件的入口文件读不到 | 重装插件 |
  *
- * 如果装配层写成「先读源码、读不到就报入口文件缺失」，那么宿主没装引擎时
- * 用户看到的会是第二条 —— 他会去反复重装一个**根本没坏**的插件。
+ * 而**同一份清单可以同时有这两个毛病**。这时报哪一条，取决于
+ * `PluginHost.script()` 里那两处检查的**先后** —— 先看引擎，才会报「宿主不支持」。
+ * 反过来的话，用户会去反复重装一个根本没坏的插件。
  *
- * 所以 [FakeScriptRuntime.reads] 必须是空的。这条只能靠「记录调用」来断言，
- * 看返回值看不出来（两种情况下工具数都是 0、都有一条 Warning）。
+ * ## 这条性质上一轮是靠「记录 `readSource` 被调过几次」断言的，现在换了测法
+ *
+ * 源码现在跟着清单走（`PluginManifest.files`），装配层**结构上**就没有
+ * 「读文件」这回事了 —— 那套记录没有存在的意义。所以换成一个**行为**断言：
+ * 拿一份两个毛病都有的清单，看报出来的是哪一条。
+ *
+ * 比记录调用更直接，而且不会因为实现换个写法就失效。
  */
 class ScriptHostTest {
 
@@ -60,28 +66,41 @@ class ScriptHostTest {
     }
 
     @Test
-    fun `源码在装配期读一次并放进每个工具`() = runBlocking {
+    fun `每个工具都拿到同一份插件文件，但各带自己的名字`() = runBlocking {
         val runtime = FakeScriptRuntime()
         val set = tools(Manifests.script(tools = listOf("csv_stats", "csv_head")), runtime)
 
-        // 装配期读，而且**只读一次** —— 两个工具共用一份脚本，
-        // 按工具各读一遍在文件大时是白白的 IO
-        assertEquals(listOf("pub.test.script" to "index.js"), runtime.reads)
-
-        // 每个工具拿到的都是同一份源码，但各带自己的名字（脚本靠它分派）
         set.tools.forEach { it.execute(buildJsonObject {}) }
         val requests = runtime.requests
-        assertEquals(2, requests.size)
-        assertEquals(
-            listOf("csv_stats", "csv_head"),
-            requests.map { it.toolName },
+
+        assertEquals(listOf("csv_stats", "csv_head"), requests.map { it.toolName })
+        // 一个插件的多个工具共用同一份源码，脚本靠 toolName 分派 ——
+        // 按工具各读一遍在文件大时是白白的 IO
+        assertEquals(1, requests.map { it.files }.toSet().size)
+        assertEquals(setOf("index.js"), requests.first().files.keys)
+    }
+
+    @Test
+    fun `子目录里的文件也一起带过去`() = runBlocking {
+        val runtime = FakeScriptRuntime()
+        val set = tools(
+            Manifests.script(
+                main = "lib/main.js",
+                files = mapOf(
+                    "lib/main.js" to "exports.run = () => require('./util.js').n()",
+                    "lib/util.js" to "exports.n = () => 2",
+                ),
+            ),
+            runtime,
         )
-        assertEquals(
-            "两个工具该拿到同一份源码",
-            1,
-            requests.map { it.source }.toSet().size,
-        )
-        assertEquals(FakeScriptRuntime.DEFAULT_SOURCE, requests.first().source)
+
+        set.tools.single().execute(buildJsonObject {})
+        val request = runtime.requests.single()
+
+        // 入口放子目录是合法写法（校验层明确允许），所以模块解析必须能看见
+        // 同一棵树里的其它文件 —— 「允许写却跑不起来」是最难查的那种不一致
+        assertEquals(setOf("lib/main.js", "lib/util.js"), request.files.keys)
+        assertEquals("lib/main.js", request.entryFile)
     }
 
     @Test
@@ -142,55 +161,52 @@ class ScriptHostTest {
 
     @Test
     fun `关掉的插件不装配也不报问题`() {
-        val runtime = FakeScriptRuntime()
-        val set = tools(Manifests.script(), runtime, enabled = false)
+        val set = tools(Manifests.script(), FakeScriptRuntime(), enabled = false)
 
         assertTrue(set.tools.isEmpty())
         // 关掉是用户的选择，不是错误。给它报问题会让插件管理页一直亮着小红点，
         // 而用户已经处理过了
         assertTrue(set.problems.isEmpty())
-        assertTrue("关掉的插件不该被读源码", runtime.reads.isEmpty())
     }
 
     // ---------------------------------------------------------------- 失败路径
 
     @Test
-    fun `引擎不可用时报的是宿主不支持而不是文件缺失`() {
-        val runtime = FakeScriptRuntime(available = false)
-        val set = tools(Manifests.script(), runtime)
+    fun `引擎没装时报的是宿主不支持，不是入口文件缺失`() {
+        // 用 raw() 绕过校验：这份清单**自己也是坏的**（entry 指向 index.js，
+        // 而 files 是空的）。校验层会拦下这种清单，所以只能手工造一个 ——
+        // 这也正是 raw() 存在的理由。
+        //
+        // 两个毛病同时存在时报哪一条，就是这条用例要钉的东西
+        val broken = Manifests.raw(Manifests.scriptObject(files = emptyMap()))
+        val set = PluginHost.tools(broken, client, FakeScriptRuntime(available = false))
 
         assertTrue(set.tools.isEmpty())
         val problem = set.problems.single()
         assertEquals("$.runtime", problem.path)
         assertTrue(problem.message, problem.message.contains("不支持"))
-        assertTrue(
+        assertEquals(
             "作者没写错，不该报成错误",
-            problem.severity == ManifestProblem.Severity.Warning,
+            ManifestProblem.Severity.Warning,
+            problem.severity,
         )
-        // 这条是本文件存在的理由：**没去读源码**。反过来的话用户看到的会是
-        // 「入口文件读不到」，然后去反复重装一个根本没坏的插件
-        assertTrue("宿主没装引擎时不该去读文件", runtime.reads.isEmpty())
     }
 
     @Test
-    fun `引擎装了但读不到入口脚本时说得清该干什么`() {
-        val set = tools(Manifests.script(main = "lib/main.js"), FakeScriptRuntime.empty())
+    fun `引擎可用但清单里没有入口文件时兜住`() {
+        // 同样绕过校验。PluginHost 是 public API，不能假设调用方一定先跑过
+        // ManifestParser（和 declarative 分支同一个理由）。
+        //
+        // 这条**正常路径下已经到不了了** —— 校验层新增的 checkEntryFileExists
+        // 会在安装时就拦下它，而那是更好的地方：只有作者能修，用户重装没用
+        val broken = Manifests.raw(Manifests.scriptObject(files = emptyMap()))
+        val set = PluginHost.tools(broken, client, FakeScriptRuntime())
 
         assertTrue(set.tools.isEmpty())
         val problem = set.problems.single()
         assertEquals("$.entry.script.main", problem.path)
-        // 报出来的是作者写的那个路径 —— 他拿着这句话回清单里对，对得上
-        assertTrue(problem.message, problem.message.contains("lib/main.js"))
+        assertTrue(problem.message, problem.message.contains("index.js"))
         assertTrue("要给下一步动作", problem.message.contains("重装"))
-    }
-
-    @Test
-    fun `入口脚本缺失是 Error 而不是 Warning`() {
-        // 和「宿主不支持」分开：那个是环境问题、等升级；这个是这个插件坏了、
-        // 现在就用不了。都报成 Warning 的话插件管理页看不出哪个该管
-        val set = tools(Manifests.script(main = "missing.js"), FakeScriptRuntime.empty())
-
-        assertEquals(ManifestProblem.Severity.Error, set.problems.single().severity)
     }
 
     @Test
@@ -204,9 +220,9 @@ class ScriptHostTest {
     }
 
     @Test
-    fun `脚本工具不依赖网络客户端`() {
-        // 装配脚本插件时**一个请求都不该发**：脚本能碰什么由沙箱管，
-        // 装配层不该有网络行为。用一台不存在的 OkHttpClient 也能装配
+    fun `装配脚本插件不发任何网络请求`() {
+        // 脚本能碰什么由沙箱管，装配层不该有网络行为。用一台没配过的
+        // OkHttpClient 也能装配，说明装配路径上没有任何请求
         val set = PluginHost.tools(
             Manifests.installed(Manifests.script()),
             OkHttpClient(),

@@ -103,6 +103,7 @@ object ManifestParser {
 
         checkIdentity(manifest, problems)
         checkRuntimeEntry(manifest, problems)
+        checkFiles(manifest, problems)
         checkPermissions(manifest, problems)
         checkSettings(manifest, problems)
         checkAuth(manifest, problems)
@@ -195,6 +196,59 @@ object ManifestParser {
 
     // ---------------------------------------------------------------- runtime 与 entry
 
+    /**
+     * [PluginManifest.files] 的总量上限。
+     *
+     * ## 为什么必须有这条
+     *
+     * 清单原文是整份存进 `plugin.manifest_json` 的，而装配时每次都要把它读出来
+     * 重新解析。没有上限的话，一份「清单」可以塞进几十 MB，后果有两个：
+     *
+     * ① 数据库那一行变得很大，而 Android 的 `CursorWindow` 是 2 MB ——
+     *    超了不是「慢」，是**读不出来**，用户看到的是「这个插件突然坏了」；
+     * ② 每次冷启动装配都要解析这几十 MB。
+     *
+     * 256 KB 对脚本插件是很宽的额度（csvstat 的源码 4.8 KB），而它同时说明了
+     * 一件事：**清单装的是契约，不是载荷**。真要打包几 MB 数据集，
+     * 那是另一种东西，该走另一条路。
+     */
+    private const val FILES_TOTAL_MAX = 256 * 1024
+
+    /**
+     * 自带文件的路径与体积。
+     *
+     * 每个键都是一条**会被宿主拿去读**的路径，所以和 `entry.script.main`
+     * 共用同一个检查函数 —— 两处各写一遍的话，迟早出现
+     * 「main 拦住了、files 没拦住」，而两者在攻击面上是同一件事。
+     */
+    private fun checkFiles(m: PluginManifest, out: MutableList<ManifestProblem>) {
+        for (path in m.files.keys.sorted()) {
+            checkRelativePath(path, "$.files[\"$path\"]", "自带文件", out)
+        }
+
+        val total = m.files.entries.sumOf { (k, v) -> k.length + v.length }
+        if (total > FILES_TOTAL_MAX) {
+            out += ManifestProblem(
+                "$.files",
+                "自带文件合计 ${total / 1024} KB，超过 ${FILES_TOTAL_MAX / 1024} KB 上限。" +
+                    "清单里装的是**契约**（声明、源码），不是数据载荷 —— " +
+                    "宿主每次装配都要重新解析它，而且它整份存在数据库的一行里。" +
+                    "要打包大文件请换一种分发方式。",
+            )
+        }
+
+        // 「声明了但没人消费」是这个项目一直在清的那类东西（§67）。
+        // 报警告而不是错误：清单本身没问题，只是那一段不起作用
+        if (m.files.isNotEmpty() && m.runtime != PluginRuntimeKind.Script) {
+            out += ManifestProblem(
+                "$.files",
+                "${m.runtime.name.lowercase()} 运行形态不读 files，这一段不会起任何作用。" +
+                    "只有 script 插件会执行自带的源码。",
+                severity = ManifestProblem.Severity.Warning,
+            )
+        }
+    }
+
     private fun checkRuntimeEntry(m: PluginManifest, out: MutableList<ManifestProblem>) {
         val e = m.entry
         when (m.runtime) {
@@ -217,8 +271,10 @@ object ManifestParser {
                 val s = e.script
                 if (s == null) {
                     out += ManifestProblem("$.entry.script", "runtime 是 script，但 entry 里没有 script 段（至少要给 main）。")
-                } else {
-                    checkScriptMain(s.main, out)
+                } else if (checkRelativePath(s.main, "$.entry.script.main", "入口脚本", out)) {
+                    // 路径本身不合法时不再报这一条：那会变成两个毛病，
+                    // 而作者只要改一处。先让他把路径写对
+                    checkEntryFileExists(s.main, m, out)
                 }
             }
 
@@ -241,43 +297,76 @@ object ManifestParser {
     }
 
     /**
-     * 入口脚本的相对路径。
+     * 一个**相对插件目录**的路径。
      *
      * ## 为什么这条校验必须有
      *
-     * [ScriptEntry.main] 会被宿主拿去**读文件**。写 `../../../../data/data/<包名>/databases/app.db`
-     * 就是一个读用户私有数据的尝试，而宿主读到的内容会进脚本、最终可能进模型。
-     * 这条边界（§45「读用户文件」）不能只靠读文件那一侧的守卫 ——
-     * 那一侧报出来的错是「读不到这个文件」，作者拿着这句话不会知道自己写错了什么，
-     * 用户也看不出这是一次越界尝试。
+     * `entry.script.main` 和 `files` 的键都会被宿主拿去**读文件**。写
+     * `../../../../data/data/<包名>/databases/app.db` 就是一个读用户私有数据的
+     * 尝试，而读到的内容会进脚本、最终可能进模型。这条边界（§45「读用户文件」）
+     * 不能只靠读文件那一侧的守卫 —— 那一侧报出来的错是「读不到这个文件」，
+     * 作者拿着这句话不会知道自己写错了什么，用户也看不出这是一次越界尝试。
      *
-     * 校验层拦下来的好处是：**安装时**就报出来，并且报的是「路径不能跳出插件目录」。
+     * 校验层拦下来的好处是：**安装时**就报出来，而且报的是「路径不能跳出插件目录」。
      *
-     * 允许子目录（`lib/util.js`）—— 入口在子目录里是正常写法，插件目录本来就是
-     * 一整棵作者自己的树。禁掉的是「跳出这棵树」的写法。
+     * 允许子目录（`lib/util.js`）—— 插件本来就是作者自己的一棵树，
+     * 入口和模块放在子目录里是正常写法。禁掉的是「跳出这棵树」的写法。
+     *
+     * @return 路径合法时为 true。**不合法时不要再拿它去查别的**（比如「在不在
+     *   `files` 里」）—— 那会变成两条错误，而作者只要改一处。
      */
-    private fun checkScriptMain(main: String, out: MutableList<ManifestProblem>) {
-        val at = "$.entry.script.main"
-
-        fun bad(why: String) {
+    private fun checkRelativePath(
+        path: String,
+        at: String,
+        what: String,
+        out: MutableList<ManifestProblem>,
+    ): Boolean {
+        fun bad(why: String): Boolean {
             out += ManifestProblem(
                 at,
-                "入口脚本路径「$main」$why。" +
+                "$what 路径「$path」$why。" +
                     "必须是一个**相对插件目录**的路径，例如 index.js 或 lib/main.js。",
             )
+            return false
         }
 
-        if (main.isBlank()) return bad("是空的")
+        if (path.isBlank()) return bad("是空的")
         // 反斜杠在 Android 上是合法文件名字符，不是分隔符 —— 放过去的话
         // `lib\main.js` 会被当成一个名字里带反斜杠的文件，作者在 Windows 上
         // 试出来的写法到真机上就找不到文件
-        if (main.contains('\\')) return bad("里有反斜杠（Android 的路径分隔符是正斜杠 `/`）")
-        if (main.startsWith("/")) return bad("是绝对路径")
-        if (main.contains("://")) return bad("像个地址")
+        if (path.contains('\\')) return bad("里有反斜杠（Android 的路径分隔符是正斜杠 `/`）")
+        if (path.startsWith("/")) return bad("是绝对路径")
+        if (path.contains("://")) return bad("像个地址")
         // `a/../b` 这种其实没跳出去，但放行它要先把路径规范化一遍，
         // 而规范化只要实现得和读文件那一侧不完全一致就会漏 —— 索性全禁
-        if (main.split('/').any { it == ".." }) return bad("里有用 `..` 跳出插件目录的段")
-        if (main.split('/').any { it.isEmpty() }) return bad("里有空的路径段")
+        if (path.split('/').any { it == ".." }) return bad("里有用 `..` 跳出插件目录的段")
+        if (path.split('/').any { it.isEmpty() }) return bad("里有空的路径段")
+        return true
+    }
+
+    /**
+     * 入口脚本必须在 [PluginManifest.files] 里。
+     *
+     * ## 为什么放在校验层而不是装配层
+     *
+     * 「入口文件读不到」原来是 `PluginHost.script()` 的一条装配期问题
+     * （显示在插件详情页上）。但它的真实成因是**这份文档自己不自洽** ——
+     * 声明了 `main` 却没把那个文件带进来。这种毛病安装时就能看见，
+     * 而且只有作者能修（用户重装一万次也没用）。
+     *
+     * 放到这里之后，插件要么是完整可用的，要么根本装不上。
+     * `PluginHost` 里那条同类检查仍然留着 —— 它是 public API，
+     * 不能假设调用方一定先跑过校验。
+     */
+    private fun checkEntryFileExists(main: String, m: PluginManifest, out: MutableList<ManifestProblem>) {
+        if (main in m.files) return
+        val present = m.files.keys.sorted().joinToString("、").ifEmpty { "空的" }
+        out += ManifestProblem(
+            "$.entry.script.main",
+            "入口脚本「$main」不在 files 里，装到设备上之后没有东西可以执行。" +
+                "请把源码放进清单顶层的 files，键就是这里写的那个路径。" +
+                "（当前 files 里是：$present）",
+        )
     }
 
     private fun checkBaseUrl(raw: String, out: MutableList<ManifestProblem>) {

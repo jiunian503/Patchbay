@@ -10,8 +10,9 @@ import kotlinx.serialization.json.JsonObject
 /**
  * 脚本工具：清单里的一段 `tools` 声明 + 插件自带的 JS 变成一个模型能调用的工具。
  *
- * 装配期只做两件事：把 [ToolSpec] 变成工具定义，把 [template] 备好（源码已在
- * `PluginHost` 里读进 `template.source`）。引擎要到 [execute] 才用。
+ * 装配期只做两件事：把 [ToolSpec] 变成工具定义，把 [template] 备好（插件自带的
+ * 源码已经在 `PluginHost` 里从清单的 `files` 取好、放进了 `template.files`）。
+ * 引擎要到 [execute] 才用。
  *
  * ## 确认弹窗的默认值是 `true`（和声明式不同）
  *

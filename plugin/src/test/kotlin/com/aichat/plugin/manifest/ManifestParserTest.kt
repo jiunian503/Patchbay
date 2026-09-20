@@ -697,18 +697,25 @@ class ManifestParserTest {
     }
 
     /**
-     * 一份最小脚本清单，[mainJson] 是**原始 JSON 值**（要带引号）。
+     * 一份最小脚本清单，[mainJson] 和 [filesJson] 都是**原始 JSON 片段**。
      *
-     * 之所以不接一个已经解码好的 Kotlin String：这条校验要测的正是「作者在
-     * JSON 里写出来的那个字符串」，而反斜杠要过 JSON 和 Kotlin 两层转义。
-     * 接 String 的话，「作者写了两个反斜杠」这种情况根本表达不出来 ——
-     * 而那恰好是这条校验存在的理由之一。
+     * [mainJson] 要带引号。之所以不接一个已经解码好的 Kotlin String：
+     * 这条校验要测的正是「作者在 JSON 里写出来的那个字符串」，而反斜杠要过
+     * JSON 和 Kotlin 两层转义。接 String 的话，「作者写了两个反斜杠」这种情况
+     * 根本表达不出来 —— 而那恰好是这条校验存在的理由之一。
+     *
+     * [filesJson] 默认给一份**能对上**的 files，于是只测 `main` 那几条时
+     * 不会同时冒出「入口不在 files 里」的第二条错误。
      */
-    private fun scriptWithMain(mainJson: String): String =
+    private fun scriptWithMain(
+        mainJson: String,
+        filesJson: String = """{"index.js":"exports.run = () => 1"}""",
+    ): String =
         """{"id":"pub.test.script","name":"脚本插件","version":"1.0.0","runtime":"script",
            "permissions":{"network":[],"filesystem":"read"},
            "entry":{"script":{"main":$mainJson}},
-           "tools":[{"name":"csv_stats","description":"统计","parameters":{"type":"object","properties":{}}}]}"""
+           "tools":[{"name":"csv_stats","description":"统计","parameters":{"type":"object","properties":{}}}],
+           "files":$filesJson}"""
             .trimIndent()
 
     @Test
@@ -749,9 +756,90 @@ class ManifestParserTest {
         // 少了这一条，一个把路径校验写成「不许有斜杠」的改动也能全绿
         // 用 `Manifests.parse` 而不是本类的 `parse`：后者返回的是检查结果
         // （可能带着若干问题），这里要的是一个已经确认可用的清单对象
-        val manifest = Manifests.parse(scriptWithMain("\"lib/main.js\""))
+        val manifest = Manifests.parse(
+            scriptWithMain(
+                "\"lib/main.js\"",
+                filesJson = """{"lib/main.js":"exports.run = () => 1"}""",
+            ),
+        )
 
         assertEquals("lib/main.js", manifest.entry.script?.main)
+    }
+
+    // ---------------------------------------------------------------- files
+
+    @Test
+    fun `files 的键过的是同一条路径校验`() {
+        // 和 `entry.script.main` 是同一件事：这两个字符串都会被宿主拿去读。
+        // 各写一遍校验的话，迟早出现「main 拦住了、files 没拦住」
+        assertRejected(
+            scriptWithMain("\"index.js\"", filesJson = """{"../escape.js":"x"}"""),
+            "跳出插件目录",
+        )
+    }
+
+    @Test
+    fun `files 的键不能是绝对路径`() {
+        assertRejected(
+            scriptWithMain("\"index.js\"", filesJson = """{"/etc/hosts":"x"}"""),
+            "绝对路径",
+        )
+    }
+
+    @Test
+    fun `入口脚本不在 files 里时报错并列出实际有哪些`() {
+        // 这份文档**自己不自洽**：声明了 main 却没把那个文件带进来。
+        // 装到设备上就是「插件在，但一调就报读不到入口」。而这种毛病只有作者能修
+        // （用户重装一万次也没用），所以必须在安装时就拦下
+        val check = parse(scriptWithMain("\"index.js\"", filesJson = """{"other.js":"x"}"""))
+
+        assertNull("不该给出清单：\n${check.report()}", check.manifest)
+        val problem = check.errors.single { it.path == "$.entry.script.main" }
+        assertTrue(problem.message, problem.message.contains("index.js"))
+        // 要说清**实际有哪些**，否则作者只能靠猜
+        assertTrue(problem.message, problem.message.contains("other.js"))
+    }
+
+    @Test
+    fun `files 合计超过上限时报错`() {
+        // 清单原文是整份存进数据库一行的，而 Android 的 CursorWindow 是 2 MB ——
+        // 超了不是「慢」，是读不出来，用户看到的是「这个插件突然坏了」。
+        // 而且每次冷启动装配都要重新解析它
+        val big = "x".repeat(300 * 1024)
+        assertRejected(
+            scriptWithMain("\"index.js\"", filesJson = """{"index.js":"$big"}"""),
+            "上限",
+        )
+    }
+
+    @Test
+    fun `非 script 形态声明 files 只给警告`() {
+        // 「声明了但没人消费」是这个项目一直在清的那类东西（§67）。
+        // 但清单本身没问题，所以是警告不是错误 —— 报成错误会让一份本来
+        // 能用的清单装不上，而它只是多写了一段不起作用的东西
+        val json = Manifests.declarative().replace(
+            """"tools":[""",
+            """"files":{"index.js":"x"},"tools":[""",
+        )
+        val check = parse(json)
+
+        assertNotNull("多写一段 files 不该让清单作废：\n${check.report()}", check.manifest)
+        val problem = check.warnings.single { it.path == "$.files" }
+        assertTrue(problem.message, problem.message.contains("declarative"))
+    }
+
+    @Test
+    fun `script 插件声明 files 不会有那条警告`() {
+        // **对照组**：上一条警告的是「非 script 形态」，不是「声明了 files」。
+        // 少了这一条，一个把条件写反的改动也能全绿 —— 而写反的后果是
+        // 每一份脚本插件都被警告一次，警告就没人看了
+        val check = parse(scriptWithMain("\"index.js\""))
+
+        assertNotNull(check.manifest)
+        assertTrue(
+            "脚本插件声明 files 是正常写法：\n${check.report()}",
+            check.warnings.none { it.path == "$.files" },
+        )
     }
 
     @Test

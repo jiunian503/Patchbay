@@ -3,7 +3,7 @@ package com.aichat.plugin.runtime.script
 import com.aichat.plugin.manifest.FilesystemScope
 
 /**
- * 脚本插件的运行时 —— 宿主必须提供的两件事：**读源码** 和 **执行**。
+ * 脚本插件的运行时 —— 宿主必须提供的**一件事**：把它跑起来。
  *
  * ## 为什么是一个窄接口，而不是直接引 QuickJS
  *
@@ -12,32 +12,26 @@ import com.aichat.plugin.manifest.FilesystemScope
  * 所以这里只声明契约，实现放在 `:app` —— 和 `DeviceInfoSource` / `WebSearchSource`
  * 由 `:app` 注入给 `:tools` 是同一个模式（这已经是第二次用了）。
  *
- * ## 为什么「读源码」和「执行」在同一个接口里
+ * ## 上一轮这里还有一个 `readSource`，现在没有了
  *
- * 因为它们是同一件事的两半，而且**失败时要给的建议不同**：
- * 「宿主没装脚本引擎」和「插件的入口文件读不到」是两条完全不同的出路，
- * 而装配层要能区分它们。放在一起，装配层只需要多一个参数
- * （`PluginHost.tools` 的签名现在只有三样，值得保住）。
+ * 当时的想法是「读源码」和「执行」是同一件事的两半，放一起能让装配层区分
+ * 「宿主没装引擎」和「插件的入口文件读不到」。**那个想法是错的**，两处都错：
  *
- * ## ⚠️ `available = false` 时，装配层**不能**先读源码
+ * 1. **源码不该由引擎提供。** 它现在跟着清单文档走（见 `PluginManifest.files`），
+ *    那是**存储**的职责，而存储归数据层 —— `InstalledPlugin` 里本来就带着它。
+ *    让引擎去读文件，等于把「插件存在哪」塞进一个只该管「怎么跑」的接口。
+ * 2. **那两条失败本来就该在不同的层。** 「入口文件读不到」的真实成因是
+ *    **文档自己不自洽**（声明了 `main` 却没把那个文件带进来），所以它现在是
+ *    `ManifestParser` 的一条**校验错误** —— 安装时就报出来，而且只有作者能修。
+ *    「宿主没装引擎」则仍然是装配期问题（用户等宿主升级）。分层比塞进一个接口更清楚。
  *
- * [Unavailable] 的 [readSource] 返回 null。如果装配层「先读源码、读不到就报
- * 入口文件缺失」，用户看到的会是「入口文件读不到」—— 而真实原因是这个宿主
- * 压根没有脚本运行时，建议完全不同（前者让他去查文件，后者让他等宿主升级）。
- * 所以装配层**必须先看 [available]**。
+ * 于是这个接口只剩一件事，也顺带说明一条判据：**窄接口要窄到只剩它独有的职责**。
+ * 凡是别人也能提供的（比如「文件在哪」），就不该出现在这里。
  */
 interface ScriptRuntime {
 
     /** 这个宿主能不能跑脚本。false 时 [execute] 一律返回 [ScriptOutcome.Kind.Unavailable]。 */
     val available: Boolean
-
-    /**
-     * 读插件目录下的一个文件。返回 null 表示**没有这个文件**。
-     *
-     * 只接受相对路径，且由实现负责挡住 `..` —— 这是「读用户文件」那条边界
-     * （§45）在脚本形态下的落点。读不到就返回 null，不要抛。
-     */
-    fun readSource(pluginId: String, path: String): String?
 
     /**
      * 跑一次工具调用。**可能长时间阻塞**（脚本是同步的，见下），调用方负责切线程。
@@ -63,14 +57,12 @@ interface ScriptRuntime {
 
     companion object {
         /**
-         * 宿主没装脚本运行时。默认值 —— 现有 25 处装配调用点因此不用改，
+         * 宿主没装脚本运行时。默认值 —— 现有装配调用点因此不用改，
          * 而且「没接引擎」时用户看到的仍是明确的「宿主还不支持」，
          * 不是静默的空工具列表（§47 的老规矩）。
          */
         val Unavailable: ScriptRuntime = object : ScriptRuntime {
             override val available: Boolean = false
-
-            override fun readSource(pluginId: String, path: String): String? = null
 
             override suspend fun execute(request: ScriptRequest): ScriptOutcome =
                 ScriptOutcome.Failed(
@@ -87,19 +79,31 @@ interface ScriptRuntime {
  * 刻意是**扁平的数据**而不是若干个对象：它要跨进程（沙箱在另一个进程里），
  * 而「能跨进程的东西」和「能序列化成 JSON 的东西」最好是同一份定义 ——
  * 否则迟早出现「本地跑得通、过到沙箱就少一个字段」。
- *
- * [source] 在装配期就读好放进来了（而不是执行时再读）：这样「入口文件缺失」
- * 会变成一条**装配期问题**显示在插件详情页，而不是等用户第一次调用时才炸。
  */
 data class ScriptRequest(
     val pluginId: String,
     val pluginName: String,
 
-    /** 入口文件名，如 `index.js`。只用于报错信息与日志。 */
+    /** 入口文件名，如 `index.js`。沙箱从 [files] 里按这个键取源码。 */
     val entryFile: String,
 
-    /** 入口文件的源码，装配期读好。 */
-    val source: String,
+    /**
+     * 插件自带的**全部**文件（相对路径 → 内容），就是 `PluginManifest.files`。
+     *
+     * ## 为什么是整份，而不是只给入口那一份
+     *
+     * 因为多文件插件是正常写法：清单的路径规则明确允许子目录
+     * （`lib/util.js` 就是那边举的例子）。只给入口的话，`require('./lib/util.js')`
+     * 无处可解 —— **允许写却跑不起来**，是最难查的那种不一致。
+     *
+     * 整份过去还有一个更好的副作用：沙箱不需要**任何**文件系统访问就能跑一个插件。
+     * 于是「读用户文件」那条边界（§45）在脚本形态下压根不存在，
+     * 而不是靠沙箱里的一道守卫去挡。
+     *
+     * 体积不是问题：上限 256 KB（见 `ManifestParser` 的 `FILES_TOTAL_MAX`），
+     * 而它本来就要跨一次进程。
+     */
+    val files: Map<String, String>,
 
     /** 这次要调的是哪个工具。一个插件的多个工具可以共用一个 `run`，靠它分派。 */
     val toolName: String,
@@ -113,7 +117,13 @@ data class ScriptRequest(
     /** 网络白名单。沙箱必须用它建 `NetworkGuard`，`host.http` 逐跳过它。 */
     val network: List<String>,
 
-    /** 文件系统范围。沙箱据此决定 `host.fs` 存不存在。 */
+    /**
+     * 文件系统范围。沙箱据此决定 `host.fs` 存不存在。
+     *
+     * 它管的是插件的**运行时工作区**（一个能写东西的目录），而不是随包带来的源码 ——
+     * 后者走 [files]，就在内存里，沙箱不碰文件系统就能读到。
+     * 两者分开之后，「读」和「写」才是两个可以分别授权的动作。
+     */
     val filesystem: FilesystemScope,
 
     /** 墙钟上限。靠**杀沙箱进程**兑现。 */

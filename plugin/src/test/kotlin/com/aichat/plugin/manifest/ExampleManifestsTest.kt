@@ -108,6 +108,70 @@ class ExampleManifestsTest {
         )
     }
 
+    /**
+     * 示例自带的源码必须和它旁边那份**可读的源文件**逐字节一致。
+     *
+     * ## 为什么会有两份
+     *
+     * 因为一个脚本插件要能被安装，就得是**一份文档** —— 源码嵌在清单顶层的
+     * `files` 里（见 `PluginManifest.files`）：这个 App 没有插件商店，
+     * 装插件只有「粘贴一段 JSON」这一条路。
+     *
+     * 但把 156 行 JS 塞进 JSON 字符串之后，它就只剩一行转义文本了。而
+     * `plugin/examples/` 是插件作者照着抄的参考版 —— 参考版里的 JS 必须是
+     * **能读的**。所以 `index.js` 留着当**源头**，清单里那份是它的副本。
+     *
+     * ## 两份就必须有人守着
+     *
+     * 改了 JS 忘了同步的话，示例会**静默地**停在旧版本 —— 上面那条
+     * 「每一份示例清单都能通过校验」照样绿，因为它只检查清单合不合法，
+     * 不检查源码是不是最新的。于是作者照着过期的示例抄，抄出一份
+     * 和文档对不上的插件，而两边都是绿的。
+     *
+     * 这和管理 `assets/plugins/` 与 `plugin/examples/` 的关系是同一个问题、
+     * 同一个答案：**生成的东西可以有两份，但必须有一条机械的判据把两边钉在一起。**
+     *
+     * ## 怎么重新生成
+     *
+     * 失败信息里给了命令。故意不做成「测试自己会写文件」——
+     * 一个会改源码的测试比一个会失败的测试危险得多。
+     */
+    @Test
+    fun `示例自带的源码和旁边的源文件逐字节一致`() {
+        var checked = 0
+
+        for (dir in examplesDir.listFiles { f -> f.isDirectory }.orEmpty().sortedBy { it.path }) {
+            val manifestFile = File(dir, "manifest.json")
+            if (!manifestFile.isFile) continue
+            val manifest = ManifestParser.parse(manifestFile.readText()).manifest ?: continue
+
+            for ((path, embedded) in manifest.files) {
+                val onDisk = File(dir, path)
+                assertTrue(
+                    "示例 ${dir.name} 的清单里声明了 $path，但目录下没有这个文件",
+                    onDisk.isFile,
+                )
+                checked++
+                assertEquals(
+                    "${dir.name}/$path 和清单里嵌的那一份不一致 —— 多半是改了源文件没重新打包。修法：\n" +
+                        "  python tools/embed_example_files.py\n" +
+                        "（在仓库根 ai-chat-app/ 下跑；它只改 manifest.json，不动源文件）",
+                    onDisk.readText(),
+                    embedded,
+                )
+            }
+        }
+
+        // 遍历空集合恒过 —— 哪天示例里没有 files 了、或者路径指错了，
+        // 这条会以「通过」的形式安静地失效。上面那条守的是「找到了几份示例」，
+        // 这条守的是「真的检查到了自带文件」，是另一件事（§38）
+        assertTrue(
+            "一个自带文件都没检查到。示例里没有 files、或者遍历失效了 —— " +
+                "空集合恒过，这条断言就是为了不让它变成一句空话",
+            checked > 0,
+        )
+    }
+
     private companion object {
         /**
          * 明确「**不打算**给示例」的形态。往这里加一个值，等于声明

@@ -3,6 +3,7 @@ package com.aichat.plugin
 import com.aichat.plugin.host.InstalledPlugin
 import com.aichat.plugin.manifest.AuthSpec
 import com.aichat.plugin.manifest.DeclarativeEntry
+import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.manifest.ManifestParser
 import com.aichat.plugin.manifest.McpEntry
 import com.aichat.plugin.manifest.McpTransport
@@ -11,10 +12,14 @@ import com.aichat.plugin.manifest.PluginManifest
 import com.aichat.plugin.manifest.PluginPermissions
 import com.aichat.plugin.manifest.PluginRuntimeKind
 import com.aichat.plugin.manifest.RequestSpec
+import com.aichat.plugin.manifest.ScriptEntry
 import com.aichat.plugin.manifest.ToolSpec
 import com.aichat.plugin.runtime.mcp.McpEra
 import com.aichat.plugin.runtime.mcp.McpToolCache
 import com.aichat.plugin.runtime.mcp.McpToolSnapshot
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 
 /**
@@ -141,6 +146,10 @@ object Manifests {
      * 字符串里没法干净地写出来（反斜杠要过两层转义），硬塞进来只会让这个
      * 构造器多一个没人看得懂的开关。
      *
+     * [files] 默认就是「[main] 指向的那份源码」，也就是**最普通的**一份脚本插件。
+     * 要测「入口不在 files 里」得走 [raw] + [scriptObject] —— 那种清单
+     * 过不了校验，`installed()` 会在解析阶段就抛。
+     *
      * [extraEntry] 是原始 JSON 片段，用来补 `timeoutMs` / `memoryLimitMb`。
      */
     fun script(
@@ -151,6 +160,7 @@ object Manifests {
         filesystem: String = "read",
         settings: String = "",
         main: String = "index.js",
+        files: Map<String, String> = mapOf(main to FakeScriptRuntime.DEFAULT_SOURCE),
         tools: List<String> = listOf("csv_stats"),
         extraEntry: String = "",
         toolBody: (String) -> String = { scriptToolSpec(it) },
@@ -163,7 +173,8 @@ object Manifests {
         append("\"permissions\":{\"network\":${network.jsonArray()},\"filesystem\":\"$filesystem\"},")
         if (settings.isNotEmpty()) append("\"settings\":{$settings},")
         append("\"entry\":{\"script\":{\"main\":\"$main\"$extraEntry}},")
-        append("\"tools\":[${tools.joinToString(",") { toolBody(it) }}]")
+        append("\"tools\":[${tools.joinToString(",") { toolBody(it) }}],")
+        append("\"files\":${files.jsonObject()}")
         append("}")
     }
 
@@ -194,7 +205,8 @@ object Manifests {
             {"id":"$id","name":"脚本插件","version":"1.0.0","runtime":"script",
              "permissions":{"network":[],"filesystem":"read"},
              "entry":{"script":{"main":"index.js"}},
-             "tools":[{"name":"csv_stats","description":"统计","parameters":{"type":"object","properties":{}}}]}
+             "tools":[{"name":"csv_stats","description":"统计","parameters":{"type":"object","properties":{}}}],
+             "files":{"index.js":"exports.run = () => 1"}}
         """.trimIndent()
 
         "mcp" -> """
@@ -351,6 +363,53 @@ object Manifests {
         request = request,
     )
 
+    /**
+     * 一个脚本清单对象，字段可随意给成不合法的值。
+     *
+     * 和 [declarativeObject] 同一个用途：测**装配层对「绕过校验的调用方」的防御**。
+     * 比如「引擎没装 **且** 入口文件也不在 `files` 里」—— 这种清单
+     * `installed()` 会在解析阶段就抛（校验层新增了那条错误），够不到装配层。
+     */
+    fun scriptObject(
+        id: String = "pub.a.script",
+        name: String = "脚本插件 $id",
+        network: List<String> = emptyList(),
+        filesystem: FilesystemScope = FilesystemScope.Read,
+        main: String = "index.js",
+        files: Map<String, String> = mapOf(main to FakeScriptRuntime.DEFAULT_SOURCE),
+        tools: List<ToolSpec> = listOf(scriptTool()),
+    ) = PluginManifest(
+        id = id,
+        name = name,
+        version = "1.0.0",
+        runtime = PluginRuntimeKind.Script,
+        permissions = PluginPermissions(network = network, filesystem = filesystem),
+        entry = PluginEntry(script = ScriptEntry(main = main)),
+        tools = tools,
+        files = files,
+    )
+
+    /** 一个脚本工具：**没有 `request` 段** —— 干什么由 JS 自己决定。 */
+    fun scriptTool(
+        name: String = "csv_stats",
+        requiresConfirmation: Boolean? = null,
+    ) = ToolSpec(
+        name = name,
+        description = "脚本工具 $name",
+        parameters = kotlinx.serialization.json.buildJsonObject {},
+        requiresConfirmation = requiresConfirmation,
+    )
+
     private fun List<String>.jsonArray(): String =
         joinToString(",", "[", "]") { "\"$it\"" }
+
+    /**
+     * 把一串字符串编成 JSON object 文本。
+     *
+     * 走 kotlinx 的序列化器，而不是手写 `"\"$k\":\"$v\""`：**源码里有引号和换行**，
+     * 手拼会造出非法 JSON，而症状是「清单解析失败」—— 看起来像被测代码的毛病，
+     * 其实是夹具自己坏了。
+     */
+    private fun Map<String, String>.jsonObject(): String =
+        Json.encodeToString(MapSerializer(String.serializer(), String.serializer()), this)
 }
