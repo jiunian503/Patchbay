@@ -263,7 +263,7 @@ class SandboxRuntimeTest {
         assertTrue(json, json.contains("\"ok\":false"))
     }
 
-    // ── 文件工作区：还没实现，但「还没实现」这件事必须是能读的 ─────────────────
+    // ── 文件工作区：这里只钉「接缝」，读写能力在 SandboxWorkspaceTest ───────────
 
     @Test
     fun 没声明_filesystem_的插件连_host_fs_的形状都看不到() {
@@ -275,22 +275,34 @@ class SandboxRuntimeTest {
     }
 
     @Test
-    fun 声明了_filesystem_的插件拿到的是说明_而不是_TypeError() {
-        // 工作区这一版还没做（见 ScriptRequest.filesystem）。给一个只说原因的桩，
-        // 是因为 undefined 给作者的是「Cannot read property 'readText' of undefined」——
-        // 没有为什么，也没有下一步，模型只会换个路径一直重试
-        val failed = failure(
+    fun 声明了_filesystem_的插件拿到的是真的_host_fs() {
+        // 和上面那条是一对，合起来说明「host.fs 存不存在」完全由清单里的
+        // permissions.filesystem 决定，和插件声明了什么都无关。
+        //
+        // 具体能不能读写、越界怎么拒，是 SandboxWorkspaceTest 的事 ——
+        // 这里只钉**接缝**：声明了就真的有四个函数，而不是一个 undefined
+        // 或者一个只会抛的桩
+        val json = okJson(
             run(
                 request(
                     source = """
-                        module.exports = { run: function (i, host) { return host.fs.readText("a.csv"); } };
+                        module.exports = { run: function (i, host) {
+                          return {
+                            readText: typeof host.fs.readText,
+                            writeText: typeof host.fs.writeText,
+                            exists: typeof host.fs.exists,
+                            list: typeof host.fs.list,
+                          };
+                        } };
                     """.trimIndent(),
                     filesystem = FilesystemScope.Read,
                 ),
             ),
         )
-        assertEquals(ScriptOutcome.Kind.ScriptError, failed.kind)
-        assertTrue(failed.message, failed.message.contains("文件工作区"))
+        assertEquals(
+            """{"readText":"function","writeText":"function","exists":"function","list":"function"}""",
+            json,
+        )
     }
 
     // ── 两条上限：这一节是整轮的验收点 ────────────────────────────────────────

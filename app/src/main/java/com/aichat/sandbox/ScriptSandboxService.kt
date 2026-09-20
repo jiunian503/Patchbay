@@ -6,6 +6,7 @@ import android.os.IBinder
 import android.os.Process
 import com.aichat.di.pluginHttpClient
 import com.aichat.plugin.runtime.script.ScriptRequest
+import com.aichat.plugin.workspace.PluginWorkspaces
 
 /**
  * 脚本沙箱。**跑在 `:sandbox` 进程里**（见清单里的 `android:process`）。
@@ -38,8 +39,13 @@ class ScriptSandboxService : Service() {
 
     /**
      * 引擎**懒建**：绑定成功但一次都没调用就断开时，不该白白建一个 OkHttp 客户端。
+     *
+     * 工作区用 [PluginWorkspaces.under] 从 `filesDir` 推出来 —— 和主进程
+     * 卸载时删的那个是同一个算法，见那个函数的注释。
      */
-    private val engine by lazy { SandboxEngine(pluginHttpClient(), filesDir) }
+    private val engine by lazy {
+        SandboxEngine(pluginHttpClient(), filesDir, PluginWorkspaces.under(filesDir))
+    }
 
     private val binder = object : IScriptSandbox.Stub() {
         override fun execute(requestJson: String): String {

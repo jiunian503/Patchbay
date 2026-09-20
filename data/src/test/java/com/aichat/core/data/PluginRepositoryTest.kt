@@ -2,16 +2,21 @@ package com.aichat.core.data
 
 import com.aichat.domain.secret.InMemorySecretStore
 import com.aichat.plugin.Manifests
+import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.runtime.mcp.McpEra
 import com.aichat.plugin.runtime.mcp.McpToolCache
 import com.aichat.plugin.runtime.mcp.toDescriptor
+import com.aichat.plugin.workspace.PluginWorkspaces
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * [PluginRepository] 的行为测试。
@@ -30,14 +35,34 @@ import org.junit.Test
  */
 class PluginRepositoryTest {
 
-    private class Env {
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    /**
+     * 一个临时的工作区根。
+     *
+     * 大部分用例都不碰它 —— 但 [PluginRepository] 的构造要求一个，
+     * 因为**卸载时把工作区删掉是它的职责**（见 [PluginRepository.uninstall]）。
+     * 用一个真的临时目录而不是空实现，是为了让「卸载顺手删了工作区」这条
+     * 能在 `卸载会连工作区一起删掉` 里被真的验到。
+     */
+    private fun workspaces() = PluginWorkspaces(File(tmp.root, "plugin-workspaces"))
+
+    /**
+     * `inner` 是为了能直接用 [tmp]。它本来是普通嵌套类，而 53 个调用点
+     * 都写的是 `Env()` —— 改签名会让这个文件里到处是噪声，
+     * 而这里要加的只是一个测试专用的临时目录。
+     */
+    private inner class Env {
         val dao = FakePluginDao()
         val secrets = InMemorySecretStore()
         var now = 1_000L
+        val workspaces = workspaces()
         val repo = PluginRepository(
             dao = dao,
             secrets = secrets,
             tx = NoTransactionRunner,
+            workspaces = workspaces,
             clock = { now },
         )
     }
@@ -902,6 +927,7 @@ class PluginRepositoryTest {
             dao = dao,
             secrets = secrets,
             tx = NoTransactionRunner,
+            workspaces = workspaces(),
             clock = { 1_000L },
         )
         repo.install(withSettings())
@@ -913,6 +939,7 @@ class PluginRepositoryTest {
             },
             secrets = secrets,
             tx = NoTransactionRunner,
+            workspaces = workspaces(),
             clock = { 1_000L },
         )
 
@@ -924,6 +951,48 @@ class PluginRepositoryTest {
         assertNull(
             "数据库没写成却留下了密钥，用户会看到「配置好了但请求没带密钥」",
             secrets.get("plugin.pub.test.demo.apiKey"),
+        )
+    }
+
+    // ---------------------------------------------------------------- 卸载
+
+    /**
+     * 卸载要清的是**三样**：数据库行、密钥、工作区。
+     *
+     * 前两样本来就有用例守着，这里补的是第三样。它漏掉的症状最难发现：
+     * 界面上的插件没了，它留下的文件还在占存储，而且**再也没有入口能清它**
+     * —— 插件记录已经没了，连详情页都进不去。
+     */
+    @Test
+    fun `卸载会连工作区一起删掉`() = runTest {
+        val env = Env()
+        env.repo.install(withSettings(id = "pub.test.demo"))
+        // 权限由调用方决定，这里直接给读写 —— 这条用例测的是「删干净」，
+        // 不是权限（权限在 PluginWorkspaceTest 里）
+        env.workspaces.open("pub.test.demo", FilesystemScope.ReadWrite)
+            .write("cache/a.txt", "x")
+
+        env.repo.uninstall("pub.test.demo")
+
+        assertFalse(
+            "插件记录删了、工作区还在：用户的存储被一份再也看不到的数据占着",
+            File(tmp.root, "plugin-workspaces/pub.test.demo").exists(),
+        )
+    }
+
+    @Test
+    fun `卸载不碰别的工作区`() = runTest {
+        val env = Env()
+        env.repo.install(withSettings(id = "pub.test.a"))
+        env.repo.install(withSettings(id = "pub.test.b"))
+        env.workspaces.open("pub.test.b", FilesystemScope.ReadWrite).write("keep.txt", "b")
+
+        env.repo.uninstall("pub.test.a")
+
+        assertEquals(
+            "删 a 的时候把 b 的工作区也删了",
+            "b",
+            env.workspaces.open("pub.test.b", FilesystemScope.ReadWrite).read("keep.txt"),
         )
     }
 }

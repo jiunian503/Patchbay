@@ -83,6 +83,33 @@ class PatchbayApp : Application() {
             // 装配失败不该让 App 起不来 —— 那时用户连「去插件页看看出了什么问题」
             // 的入口都没有。所以这里吞掉异常，插件列表页会把问题显示出来
             runCatching { container.tools.refresh() }
+            sweepOrphanWorkspaces()
+        }
+    }
+
+    /**
+     * 收掉**没有对应插件记录**的工作区目录。
+     *
+     * ## 为什么必须有这一步
+     *
+     * 卸载是「删数据库行 → 删密钥 → 删目录」三步，而删目录排在最后。
+     * 中途进程被杀（或者删目录失败），就留下一个孤儿目录 —— 它占着用户的
+     * 存储，而**界面上根本看不到它**：插件记录已经没了，连详情页都进不去。
+     * 没有这一步的话，「卸载会清干净」这句话只在不崩的那条路上成立。
+     *
+     * ## 为什么是启动时做
+     *
+     * 因为它是**对账**，不是清理：要拿「磁盘上有什么」和「数据库里有什么」
+     * 比一遍。放在启动时做，两个来源都稳定（没有正在进行的安装/卸载），
+     * 而且一次冷启动只做一次。
+     *
+     * 它不碰正在安装的插件：工作区目录是**第一次调用工具时**才建的，
+     * 而那时插件记录已经落库了。
+     */
+    private suspend fun sweepOrphanWorkspaces() {
+        runCatching {
+            val known = container.plugins.list().map { it.id }.toSet()
+            container.workspaces.sweep(known)
         }
     }
 

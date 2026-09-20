@@ -138,12 +138,16 @@ data class ScriptRequest(
      * 后者走 [files]，就在内存里，沙箱不碰文件系统就能读到。
      * 两者分开之后，「读」和「写」才是两个可以分别授权的动作。
      *
-     * ## 这一轮它还没有消费者
+     * ## 谁在执行它
      *
-     * 工作区本身（目录在哪、卸载时怎么清）是另一件事，排在沙箱之后。
-     * 所以当前 `:app` 的沙箱**不注入 `host.fs`**：声明了 `filesystem` 的插件
-     * 调用 `host.fs.readText` 会拿到一个 `TypeError`。这条不做掩饰 ——
-     * 写在字段上，而不是让它看起来「已经支持了」。
+     * `:plugin` 的 `PluginWorkspace`，由沙箱在装配期 `open(pluginId, scope)`：
+     * 路径一律相对工作区根、越界就拒（逐段拒 `..` + `canonicalFile` 比对前缀），
+     * 另有单文件 / 合计 / 条目 / 层级四条上限。目录在
+     * `<filesDir>/plugin-workspaces/<pluginId>/`，卸载时由
+     * `PluginRepository.uninstall` 删掉、启动时由 `PluginWorkspaces.sweep` 对账。
+     *
+     * 这个字段本身只负责**把声明传过去**；`None` 时沙箱连 `host.fs` 都不装，
+     * 所以插件拿到的是 `undefined` 而不是一个「存在但一用就报错」的东西。
      */
     val filesystem: FilesystemScope,
 

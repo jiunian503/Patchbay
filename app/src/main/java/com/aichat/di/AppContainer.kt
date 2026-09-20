@@ -30,6 +30,7 @@ import com.aichat.plugin.host.InstalledPlugin
 import com.aichat.plugin.host.McpRefresh
 import com.aichat.plugin.host.PluginHost
 import com.aichat.plugin.runtime.script.ScriptRuntime
+import com.aichat.plugin.workspace.PluginWorkspaces
 import com.aichat.sandbox.QuickJsSandboxRuntime
 import com.aichat.settings.AppSettings
 import com.aichat.settings.SettingsWebSearchSource
@@ -328,9 +329,19 @@ class AppContainer(context: Context) : ChatDeps {
         RemoteTextFetcher(client = manifestHttpClient, maxChars = MAX_MANIFEST_CHARS)
     }
 
+    /**
+     * 插件的运行时工作区（脚本插件存东西的地方）。
+     *
+     * 两个进程都要用**同一个路径**：主进程在卸载时删它，沙箱进程在跑脚本时
+     * 读写它。所以路径只能有一个算法 —— 见 [PluginWorkspaces.under]。
+     * `:sandbox` 进程里 `PatchbayApp` 会提前 return（不建容器），
+     * 那边由 `ScriptSandboxService` 自己调同一个函数。
+     */
+    val workspaces: PluginWorkspaces by lazy { PluginWorkspaces.under(appContext.filesDir) }
+
     /** 已装插件。密钥（`secret = true` 的配置项）由它去 KeyStore 取。 */
     val plugins: PluginRepository by lazy {
-        PluginRepository(dao = db.pluginDao(), secrets = secrets, tx = tx)
+        PluginRepository(dao = db.pluginDao(), secrets = secrets, tx = tx, workspaces = workspaces)
     }
 
     /**

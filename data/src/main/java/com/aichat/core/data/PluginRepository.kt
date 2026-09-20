@@ -11,6 +11,7 @@ import com.aichat.plugin.manifest.PluginRuntimeKind
 import com.aichat.plugin.runtime.PluginSettings
 import com.aichat.plugin.runtime.mcp.McpCacheCodec
 import com.aichat.plugin.runtime.mcp.McpToolCache
+import com.aichat.plugin.workspace.PluginWorkspaces
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -187,6 +188,16 @@ class PluginRepository(
     private val dao: PluginDao,
     private val secrets: SecretStore,
     private val tx: TransactionRunner,
+
+    /**
+     * 插件的运行时工作区。
+     *
+     * 放在这里而不是让调用方各自去删，是因为**卸载要清的东西必须是完整的一份**：
+     * 数据库行、密钥、工作区目录，三样都属于「这个插件」。拆到三个地方做，
+     * 迟早有人只做其中两样 —— 而漏掉工作区是**看不出来**的：界面上的插件没了，
+     * 它留下的文件还在占用户的存储，而且再也没有入口能清它。
+     */
+    private val workspaces: PluginWorkspaces,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
@@ -280,7 +291,19 @@ class PluginRepository(
         )
     }
 
-    /** 卸载。连带清掉这个插件的全部密钥。 */
+    /**
+     * 卸载。连带清掉这个插件的**全部**数据：密钥、工作区目录。
+     *
+     * ## 为什么工作区放在最后删
+     *
+     * 顺序是「数据库 → 密钥 → 工作区」，从**最不可恢复**到**最可恢复**：
+     * 数据库行是「这个插件存在过」的唯一记录，它一没，另外两样就再也没人
+     * 找得到了。所以先把记录删掉，剩下两样即使删失败也只是残渣 ——
+     * 而残渣由 `PluginWorkspaces.sweep` 在下次启动时收。
+     *
+     * 反过来的顺序会留一个更糟的状态：工作区删了、插件还在，用户会看到
+     * 一个「装着的、但数据莫名没了」的插件。
+     */
     suspend fun uninstall(id: String) {
         val existing = dao.get(id)
         tx.run { dao.delete(id) }
@@ -290,6 +313,7 @@ class PluginRepository(
                 secrets.remove(secretAlias(id, key))
             }
         }
+        workspaces.delete(id)
     }
 
     /** 启停。关掉的插件不进工具列表，也不显示在模型看到的工具定义里。 */

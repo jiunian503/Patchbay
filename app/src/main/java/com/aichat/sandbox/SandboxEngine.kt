@@ -7,6 +7,9 @@ import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
 import com.aichat.plugin.runtime.script.ScriptOutcome
 import com.aichat.plugin.runtime.script.ScriptRequest
+import com.aichat.plugin.workspace.PluginWorkspace
+import com.aichat.plugin.workspace.PluginWorkspaces
+import com.aichat.plugin.workspace.WorkspaceException
 import com.quickjs.CommonJSModule
 import com.quickjs.JSArray
 import com.quickjs.JSObject
@@ -16,8 +19,11 @@ import com.quickjs.QuickJS
 import com.quickjs.QuickJSScriptException
 import java.io.File
 import java.io.IOException
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -59,6 +65,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 internal class SandboxEngine(
     private val client: OkHttpClient,
     private val filesDir: File,
+    private val workspaces: PluginWorkspaces,
 ) {
 
     fun run(request: ScriptRequest): ScriptOutcome {
@@ -184,7 +191,19 @@ internal class SandboxEngine(
         request.settings.forEach { (key, value) -> settings.set(key, value) }
         host.set("settings", settings)
 
-        // 名字带下划线前缀：这两个是**原料**，装到 host 上的成品由 prelude 里的
+        // 工作区**在装配期就打开**，而不是每次调用现开：
+        // 权限检查（只读能不能写）在 PluginWorkspace 构造时就绑好了，
+        // 之后每个 fs 调用不再重复判断 —— 少一处「忘了检查」的机会。
+        //
+        // 没声明 filesystem 的插件拿到 null，__fs 对它一律返回失败。
+        // prelude 那边连 host.fs 都不装，所以这只是第二道防线
+        val workspace = if (request.filesystem == FilesystemScope.None) {
+            null
+        } else {
+            workspaces.open(request.pluginId, request.filesystem)
+        }
+
+        // 名字带下划线前缀：这三个是**原料**，装到 host 上的成品由 prelude 里的
         // install() 定义（它负责把参数规整成字符串、把信封 JSON 解成对象）。
         // 这样 JNI 边界上只过 String，不需要赌「JSObject 参数能不能读出来」。
         // **别把它注册成 `log`** —— prelude 会用它定义 `host.log`，同名的话
@@ -202,6 +221,17 @@ internal class SandboxEngine(
                 )
             },
             HTTP_RAW,
+        )
+        host.registerJavaMethod(
+            JavaCallback { _, args ->
+                fsCall(
+                    workspace = workspace,
+                    op = args.getString(0),
+                    path = args.getString(1),
+                    text = args.getString(2),
+                )
+            },
+            FS_RAW,
         )
         return host
     }
@@ -309,6 +339,69 @@ internal class SandboxEngine(
         }
     }.toString()
 
+    // ------------------------------------------------------------------ 工作区
+
+    /**
+     * `host.fs` 的实现。**和 [httpCall] 同一个形状**：返回一段信封 JSON，
+     * 由 JS 侧解成返回值或者抛出。
+     *
+     * ## 为什么也走字符串
+     *
+     * 除了「JNI 边界上只过 String」那条通用理由（见类注释），这里还多一条：
+     * 四种操作的返回类型本来就不一样（字符串 / 无 / 布尔 / 数组）。用
+     * `JSObject` 表达的话，JS 侧得靠「哪个字段有值」去猜；用信封就只有一个
+     * 规矩 —— **先看 `ok`**。
+     *
+     * ## 失败也是返回值，不是异常
+     *
+     * 见类注释：异常跨 JNI 会杀进程。所以这里一律返回 `{ok:false, error}`。
+     *
+     * [WorkspaceException] 的 message 是**写给插件作者看的**（说清哪条规矩、
+     * 下一步怎么办），这里原样搬进 `error`，一个字都不加工 ——
+     * 和 `NetworkGuard` 那句「插件没有被授权访问…」是同一条规则。
+     */
+    private fun fsCall(
+        workspace: PluginWorkspace?,
+        op: String,
+        path: String,
+        text: String,
+    ): String = runCatching {
+        if (workspace == null) {
+            return@runCatching fsError("这个插件没有声明 filesystem 权限，所以拿不到工作区。")
+        }
+        when (op) {
+            OP_READ -> fsOk { put("text", workspace.read(path)) }
+            OP_WRITE -> {
+                workspace.write(path, text)
+                fsOk()
+            }
+            OP_EXISTS -> fsOk { put("flag", workspace.exists(path)) }
+            OP_LIST -> fsOk { putJsonArray("items") { workspace.list(path).forEach { add(it) } } }
+            // 不该发生：op 是 prelude 里的字面量，不是插件给的
+            else -> fsError("宿主不认识的文件操作「$op」。")
+        }
+    }.getOrElse { t ->
+        if (t is WorkspaceException) {
+            fsError(t.message.orEmpty())
+        } else {
+            // 走到这里说明是宿主的 bug（磁盘坏了、id 校验没过…）。插件不该
+            // 因此拿到一句看不懂的英文，所以包一句能读的，原话留在日志里
+            Log.w(LOG_TAG, "工作区操作 $op 出错", t)
+            fsError("工作区操作失败：${t.message ?: t::class.simpleName}。")
+        }
+    }
+
+    private fun fsOk(build: JsonObjectBuilder.() -> Unit = {}): String =
+        buildJsonObject {
+            put("ok", true)
+            build()
+        }.toString()
+
+    private fun fsError(message: String): String = buildJsonObject {
+        put("ok", false)
+        put("error", message)
+    }.toString()
+
     // ------------------------------------------------------------------ 模块
 
     /**
@@ -409,6 +502,20 @@ internal class SandboxEngine(
         /** host 上的原料方法名。装到 host 上的成品由 [PRELUDE] 里的 install() 定义。 */
         const val HTTP_RAW = "__http"
         const val LOG_RAW = "__log"
+        const val FS_RAW = "__fs"
+
+        /**
+         * `__fs` 的四种操作。
+         *
+         * 用字面量而不是枚举：它们只在 [PRELUDE] 里和 [fsCall] 里各出现一次，
+         * 中间隔着一次跨进程的 JSON 编码 —— 枚举在这里只会多一层映射。
+         * **`else` 分支必须存在**（[fsCall] 里有），因为 JS 侧的字符串
+         * 在类型上不受这里约束。
+         */
+        const val OP_READ = "read"
+        const val OP_WRITE = "write"
+        const val OP_EXISTS = "exists"
+        const val OP_LIST = "list"
 
         const val LOG_MAX_CHARS = 2_000
         const val MAX_BODY_BYTES = 1L * 1024 * 1024
@@ -438,9 +545,9 @@ internal class SandboxEngine(
          * 3. **在 JS 里序列化返回值。** `JSON.stringify` 才是引擎自己认的规矩；
          *    用 Java 侧的 `toJSONObject()` 等于把「undefined 怎么办、循环引用怎么办」
          *    重写一遍，而且两边迟早会不一致。
-         * 4. **给还没实现的能力留一个「能读的没有」。** 声明了 `filesystem` 的插件
-         *    拿到的是一个只会说明原因的 `host.fs` 桩，而不是 `undefined`
-         *    （见 install 里那段注释）。
+         * 4. **把工作区的失败变成 JS 的异常。** Java 侧返回的是信封
+         *    （见 [fsCall]），在这里解成返回值或者 `throw` —— 插件作者拿到的
+         *    是 `Error`，和 `host.http` 那套保持一致。
          *
          * ## 两个检查是替作者挡掉「文档里写了但很难自查」的坑
          *
@@ -475,25 +582,47 @@ internal class SandboxEngine(
                   return JSON.parse(host.$HTTP_RAW(method, url, JSON.stringify(headers), body));
                 };
 
-                // 工作区（清单里 filesystem 权限对应的那个可写目录）**这一版还没实现**，
-                // 见 ScriptRequest.filesystem 的 KDoc。
+                // 工作区。清单里 filesystem 权限对应的那个目录，路径一律相对它。
                 //
-                // 但这里仍然放一个 host.fs —— 一个**只会说明原因**的桩。理由：
-                // 不声明 filesystem 的插件本来就拿不到 host.fs（权限模型），
-                // 而声明了的插件如果拿到 undefined，作者看到的是一句
-                // 「Cannot read property 'readText' of undefined」，
-                // 里面没有「为什么」也没有「接下来怎么办」，模型只会换个路径一直重试。
-                // 换成一句能读的话，它至少能告诉用户「这个宿主的文件工作区还没做」。
+                // 权限检查**不在这里**：Java 侧的 PluginWorkspace 在构造时就绑好了
+                // 「哪个插件、什么权限」，每个调用都过一遍。这里只管两件 JS 的事：
+                // 把参数规整成字符串（JNI 边界上只过 String），以及把信封解成
+                // 返回值或者 throw。
                 if (declaredFs) {
-                  var noWorkspace = function () {
-                    throw new Error(
-                      "这个宿主还没有实现插件的文件工作区。清单里声明了 filesystem 权限，" +
-                      "但 host.fs 这一版还不提供 —— 请先用 host.http 取数据，" +
-                      "或者让调用方把内容直接作为参数传进来。"
-                    );
+                  var unwrap = function (raw) {
+                    var r = JSON.parse(raw);
+                    if (!r.ok) throw new Error(r.error);
+                    return r;
                   };
-                  host.fs = { readText: noWorkspace, writeText: noWorkspace,
-                              exists: noWorkspace, list: noWorkspace };
+                  // 参数在**进 JNI 之前**检查。交给 String(p) 的话，传个对象
+                  // 会静默变成 "[object Object]" —— 一个能跑、但存错了的路径
+                  var needPath = function (p, who) {
+                    if (typeof p !== "string" || p === "") {
+                      throw new Error(who + " 需要一个**相对工作区**的路径字符串，" +
+                        "比如 \"cache/a.csv\"；根目录写成 \".\"。");
+                    }
+                    return p;
+                  };
+
+                  host.fs = {
+                    readText: function (p) {
+                      return unwrap(host.$FS_RAW("read", needPath(p, "host.fs.readText"), "")).text;
+                    },
+                    writeText: function (p, text) {
+                      if (typeof text !== "string") {
+                        throw new Error("host.fs.writeText 的第二个参数必须是字符串。" +
+                          "工作区只存文本 —— 要存对象就先 JSON.stringify。");
+                      }
+                      unwrap(host.$FS_RAW("write", needPath(p, "host.fs.writeText"), text));
+                    },
+                    exists: function (p) {
+                      return unwrap(host.$FS_RAW("exists", needPath(p, "host.fs.exists"), "")).flag;
+                    },
+                    list: function (p) {
+                      var dir = (p === undefined || p === null) ? "." : needPath(p, "host.fs.list");
+                      return unwrap(host.$FS_RAW("list", dir, "")).items;
+                    },
+                  };
                 }
               },
 
