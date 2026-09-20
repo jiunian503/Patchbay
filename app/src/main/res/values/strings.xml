@@ -1,8 +1,14 @@
 <resources>
     <!--
-      手机上图标下面那行字。改名只需要动这里 —— 代码里的 Kotlin 包名
-      com.aichat 是独立的一层，不跟着动；真正「发布后改不了」的只有
-      app/build.gradle.kts 里的 applicationId。
+      手机上图标下面那行字。
+
+      改名只需要动这里：显示名和代码里的 Kotlin 包名 `com.aichat` 是独立的两层，
+      互不牵连。五十四轮把 applicationId 从 `com.aichat` 换成了
+      `io.github.nian.patchbay`，而包名**故意没动** —— 理由（零 R 引用、
+      Room schema 目录名跟着包名走）写在 app/build.gradle.kts 的 namespace 上面。
+
+      真正「发布后改不了」的只有 applicationId：Android 按它认 App 的身份，
+      换了就等于换了一个 App，老用户的本地数据不会跟过来。
     -->
     <string name="app_name">Patchbay</string>
 </resources>

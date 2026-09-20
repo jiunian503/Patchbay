@@ -130,8 +130,17 @@ class AppSettings(context: Context) {
     }
 
     companion object {
-        /** 和密钥的 `aichat_secrets` 分开：这个文件里没有秘密，别让清理密钥的逻辑误伤它。 */
-        private const val FILE = "aichat_settings"
+        /**
+         * 偏好文件名。
+         *
+         * 和密钥的 `patchbay_secrets` 分开：这个文件里没有秘密，别让清理密钥的逻辑
+         * 误伤它。
+         *
+         * 五十四轮跟着 `applicationId` 一起从 `aichat_settings` 改成这个名字。
+         * **顺序不能反**，理由写在 `AppDatabase.DB_NAME` 的 KDoc 里：换包名之后
+         * 数据目录是新的，老偏好本来就带不过来，这时改名才是免费的。
+         */
+        private const val FILE = "patchbay_settings"
 
         private const val KEY_LONG_TERM_MEMORY = "long_term_memory"
 

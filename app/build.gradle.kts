@@ -5,10 +5,32 @@ plugins {
 }
 
 android {
+    // Kotlin 包名 / 资源命名空间。**故意不跟着 applicationId 改。**
+    //
+    // AGP 7 起 namespace 与 applicationId 是两个东西：前者只决定 R 类、生成的
+    // BuildConfig 和资源命名空间，**不影响装到设备上的身份**。
+    //
+    // 而本项目恰好可以完全不动它 —— 全仓库**零 `R.` 引用、零 `BuildConfig`
+    // 引用**（`buildConfig = false`），也没有任何跨包引用 `com.aichat.R`，
+    // 所以改它只是白搬 168 个文件。更硬的理由是 Room：schema 目录名取自
+    // `@Database` 类的全限定名（`data/schemas/com.aichat.core.data.AppDatabase/`），
+    // 挪包名就得同时挪那个目录，而迁移测试正是靠它建出「老版本库」的。
+    //
+    // 代价只有一个：读代码时包名和 App 名对不上。这是常规做法，忍了。
     namespace = "com.aichat"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.aichat"
+        // **唯一「发布后改不了」的东西。**
+        //
+        // 不能留 `com.aichat` —— 那是别人的域名，上架或发版随时可能撞名。
+        // 用 `io.github.<用户名>` 是因为唯一性由 GitHub 命名空间保证，不必先买域名。
+        // **换 GitHub 用户名 = 换 applicationId = 老用户装不上新版**，
+        // 所以这个值一旦发过版就不能再动。
+        //
+        // 改它的副作用是「设备上会多出一个 App」：Android 按 applicationId 认身份，
+        // 旧包 `com.aichat` 的数据不会迁过来。还没发布时无所谓，发布后等于
+        // 所有用户的本地数据凭空消失。五十四轮改这一次，就是为了以后不必再改。
+        applicationId = "io.github.nian.patchbay"
         minSdk = 28
         targetSdk = 36
         versionCode = 1
@@ -70,13 +92,13 @@ android {
         // 又必须测（那是用户第一眼看到的东西）。用系统属性把路径传进去，
         // 比让测试去猜工作目录可靠 —— 猜错了会以「文件不存在」的形式失败，
         // 看起来像是清单丢了，实际是路径不对
-        it.systemProperty("aichat.assetsDir", "$projectDir/src/main/assets")
+        it.systemProperty("patchbay.assetsDir", "$projectDir/src/main/assets")
         // 作者参考版示例的位置（`plugin/examples/*/manifest.json`）。
         //
         // 同样用系统属性传，不用 `File("..").canonicalFile` 去猜 —— 猜错了会以
         // 「目录不存在」的形式失败，看起来像是示例文件丢了，实际是路径不对。
         // 而这条测试要证明的恰恰是「两份文件一致」，它自己先走错路就没有说服力了
-        it.systemProperty("aichat.examplesDir", "${rootProject.projectDir}/plugin/examples")
+        it.systemProperty("patchbay.examplesDir", "${rootProject.projectDir}/plugin/examples")
 
         // **把这两个目录声明成测试任务的输入。**
         //

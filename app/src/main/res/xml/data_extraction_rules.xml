@@ -25,7 +25,7 @@
   ## 为什么这里什么都不留
 
   理由和 `allowBackup="false"` 是同一个（见 AndroidManifest 里那段）：AndroidKeyStore
-  里的主密钥不可导出、不参与任何迁移，所以数据一旦被搬过去，`aichat_secrets.xml` 里
+  里的主密钥不可导出、不参与任何迁移，所以数据一旦被搬过去，`patchbay_secrets.xml` 里
   那堆密文一把也解不开 —— 而 `AndroidKeystoreSecretStore` 解不开时是**优雅降级**
   （删掉那条记录、返回 null、不崩）。用户看到的是「会话在、服务商在、密钥全空」，
   发消息失败却没有任何地方提示要重填。

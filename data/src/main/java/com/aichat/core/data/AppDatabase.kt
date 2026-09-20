@@ -64,17 +64,24 @@ abstract class AppDatabase : RoomDatabase() {
          * **改这个 = 老数据全部读不到**：Room 按名字找文件，找不到就建一个新的空库，
          * 而且不会报错 —— 用户看到的是「会话全没了」。
          *
-         * **这里故意还留着 `aichat`，不改。** 十九轮改名时改成过 `patchbay.db`，
-         * 但那是错的：当时 `applicationId` 还没改，数据目录还是同一个
-         * （`/data/user/0/com.aichat`），设备上躺着的是 `aichat.db` —— 改名的构建
-         * 一装上去，Room 找不到 `patchbay.db` 就新建一个空库，用户的会话、服务商、
-         * API Key 会**当场全部「消失」**（其实还在 `aichat.db` 里，但 App 看不见）。
+         * ## 为什么现在可以叫 `patchbay.db`（五十四轮）
          *
-         * **顺序不能反**：必须是「`applicationId` 先改 → 系统给全新数据目录 →
-         * 老数据本来就要重来 → 这时才顺手把文件名也改成 patchbay」。
-         * 在那之前，这个名字必须和线上那个库保持一致。
+         * 十九轮时这里叫过 `patchbay.db`，后来被**改回** `aichat.db` —— 因为当时
+         * `applicationId` 还是 `com.aichat`，数据目录没变（`/data/user/0/com.aichat`），
+         * 设备上躺着的是 `aichat.db`。改名的构建一装上去，Room 找不到 `patchbay.db`
+         * 就新建一个空库，会话、服务商、API Key 会**当场全部「消失」**
+         * （其实还在 `aichat.db` 里，但 App 看不见）。
+         *
+         * **那个前提已经不成立了**：`applicationId` 换成了 `io.github.nian.patchbay`
+         * （见 `app/build.gradle.kts`），系统会给一个**全新的数据目录**，老
+         * `com.aichat` 的数据不会、也不该跟过来。新 App 从零开始，所以文件名可以
+         * 随便起 —— 这正是当初记下的那个顺序：「`applicationId` 先改 → 系统给全新
+         * 数据目录 → 老数据本来就要重来 → 这时才顺手把文件名也改成 patchbay」。
+         *
+         * 反过来说：**这是唯一一次机会。** 一旦发过版，这个名字就和线上那个库绑死了，
+         * 再改就是又一次「用户的会话全没了」。
          */
-        const val DB_NAME = "aichat.db"
+        const val DB_NAME = "patchbay.db"
 
         /**
          * 建库。**不要**开 `fallbackToDestructiveMigration()`。

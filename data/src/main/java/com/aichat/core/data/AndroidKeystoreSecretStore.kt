@@ -21,11 +21,11 @@ import kotlinx.coroutines.withContext
  * ## 存放形态
  *
  * ```
- *   SharedPreferences ("aichat_secrets")
+ *   SharedPreferences ("patchbay_secrets")
  *     "provider.<uuid>" -> "base64(iv):base64(ciphertext)"
  *
  *   AndroidKeyStore
- *     "aichat.secrets.v1" -> AES-256 主密钥（硬件支持时由 TEE/StrongBox 持有，不可导出）
+ *     "patchbay.secrets.v1" -> AES-256 主密钥（硬件支持时由 TEE/StrongBox 持有，不可导出）
  * ```
  *
  * **一个主密钥加密所有密钥**，而不是每个密钥一把 KeyStore 条目 ——
@@ -135,10 +135,17 @@ class AndroidKeystoreSecretStore(
     private fun unb64(text: String): ByteArray = Base64.getDecoder().decode(text)
 
     companion object {
-        const val PREFS_NAME = "aichat_secrets"
+        const val PREFS_NAME = "patchbay_secrets"
 
-        /** 主密钥在 AndroidKeyStore 里的别名。改名等于让所有已存的密钥失效。 */
-        const val KEYSTORE_ALIAS = "aichat.secrets.v1"
+        /**
+         * 主密钥在 AndroidKeyStore 里的别名。改名等于让所有已存的密钥失效。
+         *
+         * 五十四轮跟着 `applicationId` 一起改名，**这次是安全的** —— 换包名之后
+         * 设备上是另一个 uid，KeyStore 里老 uid 那把主密钥本来就读不到。和
+         * `AppDatabase.DB_NAME` 是同一条道理、同一个顺序：包名先改 → 数据重来 →
+         * 这时才顺手改名。发布之后再改就是真的让所有人的密钥失效。
+         */
+        const val KEYSTORE_ALIAS = "patchbay.secrets.v1"
 
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

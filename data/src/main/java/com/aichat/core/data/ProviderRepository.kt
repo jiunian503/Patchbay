@@ -94,7 +94,7 @@ val ProviderEntity.displayName: String
  *
  * ## 为什么密钥和配置要分两处存
  *
- * 合在一起最省事，但那样数据库文件（`/data/data/<pkg>/databases/aichat.db`）
+ * 合在一起最省事，但那样数据库文件（`/data/data/<pkg>/databases/patchbay.db`）
  * 被拷走就等于 Key 泄漏 —— 备份、root、调试桥都能拿到它。
  * 分开之后，攻击者还需要拿到设备的 KeyStore（不可导出）。
  *

@@ -31,9 +31,9 @@ import org.junit.Test
 class BundledManifestsTest {
 
     private val assetsDir: File = run {
-        val raw = System.getProperty("aichat.assetsDir")
+        val raw = System.getProperty("patchbay.assetsDir")
         assertNotNull(
-            "构建配置没把 aichat.assetsDir 传给测试 JVM —— " +
+            "构建配置没把 patchbay.assetsDir 传给测试 JVM —— " +
                 "检查 app/build.gradle.kts 的 testOptions.unitTests.all",
             raw,
         )
@@ -155,9 +155,9 @@ class BundledManifestsTest {
     @Test
     fun `随包发的示例清单与作者参考版逐字节相同`() {
         val examplesDir = run {
-            val raw = System.getProperty("aichat.examplesDir")
+            val raw = System.getProperty("patchbay.examplesDir")
             assertNotNull(
-                "构建配置没把 aichat.examplesDir 传给测试 JVM —— " +
+                "构建配置没把 patchbay.examplesDir 传给测试 JVM —— " +
                     "检查 app/build.gradle.kts 的 testOptions.unitTests.all",
                 raw,
             )
@@ -171,7 +171,7 @@ class BundledManifestsTest {
             .map { File(it, "manifest.json") }
             .filter { it.isFile }
         assertTrue(
-            "一份参考版示例都没找到，先确认 aichat.examplesDir 指对了：${examplesDir.absolutePath}",
+            "一份参考版示例都没找到，先确认 patchbay.examplesDir 指对了：${examplesDir.absolutePath}",
             references.isNotEmpty(),
         )
 

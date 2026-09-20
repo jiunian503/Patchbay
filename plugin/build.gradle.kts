@@ -62,7 +62,7 @@ tasks.test {
     // 猜错了会以「文件不存在」的形式失败，看起来像 schema 丢了，
     // 而真正要证明的是「schema 和模型一致」，它自己先走错路就没有说服力。
     // （:app 那边的 assets / examples 也是这么传的，见 app/build.gradle.kts）
-    systemProperty("aichat.schemaFile", "$projectDir/manifest.schema.json")
+    systemProperty("patchbay.schemaFile", "$projectDir/manifest.schema.json")
 
     // **把 schema 声明成测试任务的输入。**
     //

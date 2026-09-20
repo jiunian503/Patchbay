@@ -360,10 +360,10 @@ class ManifestModelTest {
             .jsonObject
 
     private fun readSchema(): JsonObject {
-        val path = System.getProperty("aichat.schemaFile")
+        val path = System.getProperty("patchbay.schemaFile")
         assertNotNull(
             "没拿到 schema 的路径。它由 plugin/build.gradle.kts 里的 " +
-                "`systemProperty(\"aichat.schemaFile\", …)` 传进来 —— " +
+                "`systemProperty(\"patchbay.schemaFile\", …)` 传进来 —— " +
                 "少了它这条测试会以「文件不存在」的形式失败，" +
                 "看起来像 schema 丢了，实际是配置漏了",
             path,
