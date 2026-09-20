@@ -133,9 +133,14 @@ python tools/archive_release.py                # 验过了再归档
 **这一步目前是手工的**（本机没装 `gh` CLI）。先建远程仓库 —— 现在还没有：
 
 ```bash
-git remote add origin git@github.com:jiunian503/patchbay.git
+git remote add origin https://github.com/jiunian503/patchbay.git
 git push -u origin master
 ```
+
+用 **HTTPS 而不是 SSH**：这台机器 `~/.ssh/` 下只有 `known_hosts`、**没有密钥**，
+`git@github.com:...` 会直接报 `Permission denied (publickey)`。
+HTTPS 首次推送会弹一个凭据窗口（Git for Windows 自带的凭据管理器），走一次 GitHub 登录就行。
+真想用 SSH 的话，先 `ssh-keygen -t ed25519` 再把公钥加到 GitHub 账号里。
 
 然后到 GitHub 上建 Release（tag 用 `v1.0` 之类），把 `dist/patchbay-1.0/` 里的
 **`patchbay-1.0.apk` 和 `mapping.txt`** 作为附件传上去。
