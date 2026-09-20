@@ -428,6 +428,79 @@ python tools/archive_release.py --find-map-id <堆栈里的那个 64 位 hash>
 "$ANDROID_HOME/cmdline-tools/latest/bin/retrace.bat" dist/patchbay-1.0/mapping.txt crash.txt
 ```
 
+### 10. 全量核对所有版本的发布资产（偶尔做）
+
+第 8 步那三条复核只核**当次那一版**。这一节核**所有版本** —— 因为 `dist/` 与 Releases
+是仅有的两份副本，而「某一版的 mapping 悄悄坏了」不会有任何东西提醒你。
+
+**四条判据，缺一不可**：
+
+| # | 判据 | 怎么核 |
+|---|---|---|
+| 1 | 线上附件与本地归档**逐字节相同** | 比 sha256（**不是比大小**） |
+| 2 | APK 的 DEX / mapping / `map-id.txt` **三方一致** | 见下面那段 Python |
+| 3 | 归档记的源码 `HEAD` 真实存在，且在 master 历史上 | `git merge-base --is-ancestor` |
+| 4 | 版本号与目录名相符 | `aapt2 dump badging` 读 `versionCode` / `versionName` |
+
+**判据 1 有省事的办法**：GitHub 现在给每个 asset 带 `digest` 字段，
+不用把 43 MB 的 mapping 拉回来：
+
+```bash
+GH_TOKEN="$TOKEN" "$GH" api repos/jiunian503/Patchbay/releases \
+  --jq '.[] | "=== \(.tag_name) ===", (.assets[] | "  \(.name)  \(.size)  \(.digest)")'
+```
+
+和本地对：
+
+```bash
+cd dist && sha256sum patchbay-*/patchbay-*.apk patchbay-*/mapping.txt
+```
+
+**判据 2 为什么重要**：`map-id` 是「用户发来的堆栈属于哪一版」唯一的线索。三方里
+任何一方对不上，`--find-map-id` 就会指错版本、拿错 mapping 去 retrace。
+`archive_release.py` 在归档时验过 APK↔mapping，但**归档之后再没人验过**，
+`map-id.txt` 更是从来没被反向核过：
+
+```bash
+python - <<'PY'
+import re, zipfile
+MAP_ID_IN_DEX = re.compile(rb'r8-map-id-([0-9a-f]{64})')
+PG = re.compile(r'^#\s*pg_map_id:\s*([0-9a-f]{64})\s*$', re.MULTILINE)
+for v in ('1.0', '1.1', '1.2'):
+    d = 'dist/patchbay-' + v
+    with zipfile.ZipFile(f'{d}/patchbay-{v}.apk') as z:
+        blob = b''.join(z.read(n) for n in z.namelist() if n.endswith('.dex'))
+    ids = sorted({m.decode() for m in MAP_ID_IN_DEX.findall(blob)})
+    m = PG.search(open(f'{d}/mapping.txt', encoding='utf-8').read(4096))
+    pgid = m.group(1) if m else None
+    txt = open(f'{d}/map-id.txt', encoding='utf-8').read().strip()
+    ok = len(ids) == 1 and pgid == ids[0] == txt
+    print(v, 'ALL THREE MATCH' if ok else f'MISMATCH ids={ids} pg={pgid} txt={txt}')
+PY
+```
+
+**2026-09-21 的实测结果（三版全过，作为基线）**：
+
+| 版本 | APK sha256 | mapping sha256 | map-id |
+|---|---|---|---|
+| 1.0 | `adfdabfa…` | `8353de4a…` | `3698dbbf…` |
+| 1.1 | `e78dfab9…` | `97382845…` | `92bac30a…` |
+| 1.2 | `634af1c3…` | `fb116d5a…` | `f467dfa3…` |
+
+四条判据 3/3 全过，`--find-map-id` 反查闭环成立（每个 id 都指向自己那一版）。
+
+**顺带核一件容易忽略的**：本地 `NOTES.md` 与线上 Release 正文是否一致 ——
+**线上会比本地多一个末尾空行**（GitHub 自动补的），其余应逐字相同：
+
+```bash
+GH_TOKEN="$TOKEN" "$GH" release view v1.2 --repo jiunian503/Patchbay --json body --jq '.body' \
+  > /tmp/body.md && diff <(sed 's/\r$//' dist/patchbay-1.2/NOTES.md) <(sed 's/\r$//' /tmp/body.md)
+```
+
+> ⚠️ `dist/patchbay-1.0/NOTES.md` 是 **2026-09-21 从线上回填的** —— `NOTES.md` 这个
+> 约定是 v1.1 才有的，v1.0 发布时说明直接写在 `gh` 命令里。回填内容与线上逐字相同，
+> 只是末尾按本地风格收敛成一个换行（本地是纯 LF）。
+
 ---
 
 ## 常见报错对照
