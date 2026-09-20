@@ -169,11 +169,24 @@ python tools/elf_align.py app/build/outputs/apk/release/app-release.apk
 
 > 归档脚本读不出这两个值会**直接停下** —— 不会给你一个叫 `patchbay-unknown` 的目录。
 
-### 6. 构建
+### 6. 构建 + 两条验收
 
 ```bash
 $G :app:assembleRelease --max-workers=2 --no-configuration-cache
 ```
+
+**改过版本号之后必须重新验收** —— 版本串进了 `AndroidManifest.xml`，APK 的字节就变了，
+而验收验的就是**要发出去的那一份**。两条路，都要走：
+
+| 验什么 | 判据在哪 | 要点 |
+|---|---|---|
+| **全新安装** | SKILL.md **§89**（15 条） | 装完看 `primaryCpuAbi`；压到「脚本插件」那条路（`:sandbox` 是唯一 dlopen 自己原生库的地方）；收尾记下 APK 的 **sha256** |
+| **从上一版覆盖升级** | SKILL.md **§90**（8 条） | 装上一版的 APK 造出数据 → `install -r` 新版 → 逐样核对；`firstInstallTime ≠ lastUpdateTime` 才说明是更新 |
+
+> 全新安装**验不到**升级路径上的东西（Room 迁移、密钥解密、插件数据、ABI 变化），
+> 而真实用户大多是从上一版升上来的 —— 所以两条都要跑。
+>
+> 两条都验完**都要 `uninstall`**，否则会挡住后面所有 debug 安装。
 
 ### 7. 归档 APK + mapping
 
