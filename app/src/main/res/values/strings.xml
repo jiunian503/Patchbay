@@ -4,7 +4,7 @@
 
       改名只需要动这里：显示名和代码里的 Kotlin 包名 `com.aichat` 是独立的两层，
       互不牵连。五十四轮把 applicationId 从 `com.aichat` 换成了
-      `io.github.nian.patchbay`，而包名**故意没动** —— 理由（零 R 引用、
+      `io.github.jiunian503.patchbay`，而包名**故意没动** —— 理由（零 R 引用、
       Room schema 目录名跟着包名走）写在 app/build.gradle.kts 的 namespace 上面。
 
       真正「发布后改不了」的只有 applicationId：Android 按它认 App 的身份，

@@ -30,7 +30,12 @@ android {
         // 改它的副作用是「设备上会多出一个 App」：Android 按 applicationId 认身份，
         // 旧包 `com.aichat` 的数据不会迁过来。还没发布时无所谓，发布后等于
         // 所有用户的本地数据凭空消失。五十四轮改这一次，就是为了以后不必再改。
-        applicationId = "io.github.nian.patchbay"
+        //
+        // **用户名已确认（五十六轮）**：五十四轮这里写的是 `io.github.nian.patchbay`，
+        // 那个 `nian` 是**我替 Boss 假设的**占位值（他当时把定名权交了出来）。五十六轮
+        // 他给出真值 `jiunian503`，于是改掉 —— 还没发版，代价为零。
+        // **从这一版起，这个字符串冻结。**
+        applicationId = "io.github.jiunian503.patchbay"
         minSdk = 28
         targetSdk = 36
         versionCode = 1

@@ -72,7 +72,7 @@ abstract class AppDatabase : RoomDatabase() {
          * 就新建一个空库，会话、服务商、API Key 会**当场全部「消失」**
          * （其实还在 `aichat.db` 里，但 App 看不见）。
          *
-         * **那个前提已经不成立了**：`applicationId` 换成了 `io.github.nian.patchbay`
+         * **那个前提已经不成立了**：`applicationId` 换成了 `io.github.jiunian503.patchbay`
          * （见 `app/build.gradle.kts`），系统会给一个**全新的数据目录**，老
          * `com.aichat` 的数据不会、也不该跟过来。新 App 从零开始，所以文件名可以
          * 随便起 —— 这正是当初记下的那个顺序：「`applicationId` 先改 → 系统给全新
