@@ -23,8 +23,10 @@ import okio.Buffer
  * - URL 里的查询串会连同用户 IP 一起泄露给第三方。
  *
  * 所以 [requiresConfirmation] 为 true —— 写操作和对外动作一律要人点头。
- * （当前编排层用的是 `ToolApprover.AllowAll`，弹窗 UI 还没做；
- * 但分类必须现在就写对，否则等 UI 接上时就成了默认放行。）
+ * 这条路径**已经接通了**：`ToolApprovalGate` 由 `ChatViewModel` 装配进会话
+ * （`deps.newSession(provider, gate)`），界面在 `ChatScreen` 里渲染那个框。
+ * 早先这里写的是「编排层用的是 `ToolApprover.AllowAll`，弹窗 UI 还没做」——
+ * 那句话在弹窗接上之后没跟着改，留了一阵子。判据是能不能点，不是注释怎么写。
  *
  * ## 硬限制
  *

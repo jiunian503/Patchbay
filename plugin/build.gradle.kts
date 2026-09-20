@@ -73,6 +73,16 @@ tasks.test {
     // 结果是：协议里 `script` 这一支的示例从来没被解析过，改错了没人知道。
     systemProperty("patchbay.examplesDir", "$projectDir/examples")
 
+    // 仓库根那份 README 的路径。
+    //
+    // 为什么 :plugin 要管 README：那份文档里有一段手写的示例清单，而
+    // **示例清单属于本模块的协议**。作者照着它抄，抄出来的东西要能装 ——
+    // 所以 `ReadmeManifestTest` 把那段 JSON 喂给真的 `ManifestParser`。
+    //
+    // 用 rootProject 而不是 `$projectDir/../README.md`：README 就在仓库根，
+    // 说清楚这件事比省一次引用更值 —— 也免得哪天 :plugin 被挪到别的层级。
+    systemProperty("patchbay.readmeFile", rootProject.file("README.md").absolutePath)
+
     // **把 schema 声明成测试任务的输入。**
     //
     // 这条不能省：Gradle 只看测试任务的声明输入（源码、classpath），
@@ -89,5 +99,12 @@ tasks.test {
     // 改它不会动任何源码。不声明的话，「示例清单被改坏了」会以「测试通过」
     // 的形式安静地失效 —— 和上面 schema 那条是同一个坑（§38）。
     inputs.dir("$projectDir/examples")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // README 同理，而且是这里**最容易**漏掉的一个：它是仓库根的 Markdown，
+    // 改它不会动任何源码、也不在 :plugin 目录下。不声明的话，
+    // 「README 里的示例清单被改坏了」会以「测试通过」的形式安静地失效 ——
+    // 而 `ReadmeManifestTest` 存在的**全部意义**就是抓这一种改动。
+    inputs.file(rootProject.file("README.md"))
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }

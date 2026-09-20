@@ -4,6 +4,7 @@ import com.aichat.domain.search.ConversationSearch
 import com.aichat.domain.search.MessageHit
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolRegistry
+import java.io.File
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -366,5 +367,96 @@ class BuiltinToolsTest {
             registry.definitions().map { it.name }.sorted(),
             again.definitions().map { it.name }.sorted(),
         )
+    }
+
+    // ---------- 文档 ----------
+
+    private val readme: File = run {
+        val raw = System.getProperty("patchbay.readmeFile")
+        assertNotNull(
+            "构建配置没把 patchbay.readmeFile 传给测试 JVM —— " +
+                "检查 tools/build.gradle.kts 的 tasks.test",
+            raw,
+        )
+        File(raw!!).also {
+            assertTrue("README 不存在：${it.absolutePath}", it.isFile)
+        }
+    }
+
+    /**
+     * README 里那张工具表必须和真正注册的工具**一一对应**。
+     *
+     * ## 为什么用测试守文档
+     *
+     * 工具表是 README 对「这个 App 能做什么」最直接的回答，也是用户读得最细的
+     * 一段。而改一个工具名、加一个工具、删一个工具，**都不会有任何东西报错** ——
+     * 只有人真去看才会发现，而人不会每次都去看。
+     *
+     * 这不是假想。写 README 的时候对着源码手工核了一遍，同一份文档里就找出
+     * 四处不准确：漏了一个出网类别（`fetch_url` 是模型挑地址的，不属于
+     * 「插件白名单」那一类）、一处自相矛盾（先说插件「没有进程」、下一条又说
+     * 脚本插件跑在独立进程里）、两处界面文字对不上（「清空」实际是「清除」、
+     * 诊断入口只在真有崩溃记录时才出现）。
+     *
+     * **手工核对是一次性的** —— 下次改代码时它不会重跑。所以能机械化的那一部分
+     * 就得机械化，这条守的就是最容易漂的那一部分。
+     *
+     * ## 为什么两个方向都要断言
+     *
+     * 只断言「README 里的名字都真实存在」，那么**新加了工具却忘了写文档**
+     * 照样绿；只断言「每个工具都在 README 里」，那么文档里多写一个不存在的
+     * 工具也照样绿。两边一起断，才是「一一对应」。
+     *
+     * ## 怎么找到那张表
+     *
+     * 按表头 `| 工具 | 做什么 |` 精确定位，再往下收连续的表格行。
+     * 不用「所有反引号包裹的短标识符」那种宽松规则 —— 下面「结构」那张模块表里
+     * 也有 `tools`、`spike` 这种名字，会被一起收进来，于是这条测试会开始
+     * 要求 README 里出现一个叫 `spike` 的工具。
+     */
+    @Test
+    fun `README 的工具表与内置工具一一对应`() {
+        val rows = readmeTableRows("| 工具 | 做什么 |")
+
+        assertTrue(
+            "在 README 里没找到以 `| 工具 | 做什么 |` 开头的表格。" +
+                "表头被改了、或者这张表被删了 —— 都会让这条测试变成一句空话",
+            rows.isNotEmpty(),
+        )
+
+        val documented = rows.map { row ->
+            val cell = row.trim().removePrefix("|").substringBefore('|').trim()
+            assertTrue(
+                "工具表里这一格不是 `名字` 的形式：$cell",
+                cell.length >= 2 && cell.startsWith("`") && cell.endsWith("`"),
+            )
+            cell.trim('`')
+        }
+
+        assertEquals(
+            "README 的工具表和实际注册的工具对不上。加、删、改名之后没人会记得" +
+                "回来改文档，而工具表是用户对「这个 App 能做什么」最直接的答案：",
+            tools.map { it.definition.name }.sorted(),
+            documented.sorted(),
+        )
+    }
+
+    /**
+     * 从 README 里取一张 Markdown 表格的数据行（不含表头和 `|---|` 分隔行）。
+     *
+     * 按 [header] 精确定位表头，然后往下收连续的 `|` 开头的行，
+     * 遇到第一个不是表格的行就停 —— 这样不会串进相邻的表。
+     *
+     * 表头找不到时返回空列表（由调用方断言非空，而不是在这里抛异常：
+     * 「表没了」和「表是空的」是两件事，调用方更清楚该怎么报）。
+     */
+    private fun readmeTableRows(header: String): List<String> {
+        val lines = readme.readLines()
+        val start = lines.indexOfFirst { it.trim() == header }
+        if (start < 0) return emptyList()
+
+        return lines.drop(start + 1)
+            .dropWhile { it.trim().startsWith("|---") }
+            .takeWhile { it.trim().startsWith("|") }
     }
 }
