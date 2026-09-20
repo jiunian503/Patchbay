@@ -48,18 +48,21 @@ import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbNavRow
 import com.aichat.ui.common.PbScaffold
 import com.aichat.ui.common.PbSectionLabel
+import com.aichat.ui.conversations.formatTime
 
 /**
  * 设置页。
  *
  * ## 标题从「服务商」改成了「设置」
  *
- * 这个页面里装着三样东西：隐私说明、长期记忆开关、插件入口、服务商列表。
- * 而标题一直写着「服务商」—— 用户从首页点「设置」进来，看到的是「服务商」，
- * 会以为走错了；而长期记忆和插件两个入口**看起来像是服务商页的附注**，
- * 实际它们是这个 App 的主线功能。
+ * 这个页面里装着五块东西：隐私说明、长期记忆开关、集成（插件 / 联网搜索）、
+ * 服务商列表、诊断（崩溃记录）。而标题一直写着「服务商」—— 用户从首页点
+ * 「设置」进来，看到的是「服务商」，会以为走错了；而长期记忆和插件两个入口
+ * **看起来像是服务商页的附注**，实际它们是这个 App 的主线功能。
  *
- * 现在改成「设置」，并给三块内容各加一行小节标题，让层级自己说话。
+ * 现在改成「设置」，并给每一块加一行小节标题，让层级自己说话。
+ *
+ * 「诊断」那一节**只在真有崩溃记录时才渲染** —— 理由见文件末尾那段注释。
  *
  * ## 「集成」下面现在有两个入口
  *
@@ -83,6 +86,7 @@ fun ProviderListScreen(
     onEdit: (String?) -> Unit,
     onOpenPlugins: () -> Unit,
     onOpenWebSearch: () -> Unit,
+    onOpenCrashLogs: () -> Unit,
 ) {
     val viewModel: ProviderListViewModel = viewModel { ProviderListViewModel(container) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -205,6 +209,28 @@ fun ProviderListScreen(
                         onEdit = { onEdit(row.id) },
                         onSetDefault = { viewModel.setDefault(row.id) },
                         onDelete = { pendingDelete = row },
+                    )
+                }
+            }
+
+            // 「诊断」放在**最后**，两个理由：
+            //
+            // 1. 它是关于 App 自己的信息，不是配置。这一页的小节顺序是
+            //    「越往下越具体」，诊断在语义上属于页尾 —— 而且不该把服务商
+            //    列表（这一页的主内容）挤到下面去。
+            // 2. 它只在**真有崩溃记录**时出现。放一个灰着的入口在那儿、点进去
+            //    看到一页空白，用户只会以为这功能坏了 —— 和空状态是同一条
+            //    道理（§76：文案要回答「为什么现在是空的」）。
+            val crash = state.crashes
+            if (crash != null) {
+                item { PbSectionLabel("诊断") }
+                item {
+                    PbNavRow(
+                        icon = PbIcons.Warning,
+                        title = "崩溃记录",
+                        body = "有 ${crash.count} 条记录，最近一次在 ${formatTime(crash.latestAt)}。" +
+                            "堆栈只存在这台设备上，复制出来就能拿去查。",
+                        onClick = onOpenCrashLogs,
                     )
                 }
             }

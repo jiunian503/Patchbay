@@ -76,3 +76,15 @@ import kotlinx.serialization.Serializable
 
 /** 插件详情与配置。 */
 @Serializable data class PluginDetail(val pluginId: String) : NavKey
+
+/**
+ * 崩溃记录。
+ *
+ * 放在「设置」那一支下面，和 [PluginList] 同理：它是**诊断**，不是日常动作 ——
+ * 多数用户一辈子只进来一次，而那次往往是为了把堆栈复制给别人看。
+ *
+ * 页面上会写明这些堆栈只存在本机、不含会话内容与密钥。因为「崩溃记录」
+ * 这四个字的第一反应是「我的东西被传走了吗」，而答案要由界面自己给出，
+ * 不能指望用户去翻文档（见 `com.aichat.crash` 那两个文件的 KDoc）。
+ */
+@Serializable data object CrashLogs : NavKey

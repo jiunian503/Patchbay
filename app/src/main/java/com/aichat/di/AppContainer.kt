@@ -18,6 +18,7 @@ import com.aichat.core.data.RoomConversationSearch
 import com.aichat.core.data.RoomConversationStore
 import com.aichat.core.data.RoomTransactionRunner
 import com.aichat.core.data.displayName
+import com.aichat.crash.CrashStore
 import com.aichat.domain.search.ConversationSearch
 import com.aichat.domain.secret.SecretStore
 import com.aichat.domain.tool.Tool
@@ -345,6 +346,25 @@ class AppContainer(context: Context) : ChatDeps {
             tools.refresh()
         }
         return result
+    }
+
+    /**
+     * 崩溃记录。
+     *
+     * ## 为什么这里是**另一个实例**（和 `PatchbayApp` 装处理器时那个不是同一个对象）
+     *
+     * 因为装处理器必须**早于**容器构造 —— 容器构造要碰数据库、KeyStore、
+     * OkHttp，那里炸掉正是最需要堆栈的一种崩溃，那时容器还不存在。
+     *
+     * 而 [CrashStore] 本身没有状态：它只是「某个目录」的一层操作。两个实例
+     * 指向同一个 `filesDir/crash/`，就像同一个文件被打开两次。目录名只有
+     * [CrashStore.DIR_NAME] 一处定义，所以两边必然指的是同一批文件。
+     *
+     * 用 `filesDir.resolve(...)` 而不是 `File(filesDir, ...)`：省一个
+     * `java.io.File` 的 import，而且这里本来也不需要那个类型名。
+     */
+    val crashes: CrashStore by lazy {
+        CrashStore(appContext.filesDir.resolve(CrashStore.DIR_NAME))
     }
 
     fun newConversationId(): String = UUID.randomUUID().toString()

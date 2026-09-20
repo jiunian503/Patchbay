@@ -12,6 +12,7 @@ import androidx.navigation3.ui.NavDisplay
 import com.aichat.di.AppContainer
 import com.aichat.ui.chat.ChatScaffold
 import com.aichat.ui.conversations.ConversationSearchScreen
+import com.aichat.ui.crash.CrashLogScreen
 import com.aichat.ui.plugins.PluginDetailScreen
 import com.aichat.ui.plugins.PluginInstallScreen
 import com.aichat.ui.plugins.PluginListScreen
@@ -199,6 +200,14 @@ fun MainNavigation(container: AppContainer) {
                         onEdit = { providerId -> backStack.add(ProviderEdit(providerId)) },
                         onOpenPlugins = { backStack.add(PluginList) },
                         onOpenWebSearch = { backStack.add(WebSearchSettings) },
+                        onOpenCrashLogs = { backStack.add(CrashLogs) },
+                    )
+                }
+
+                entry<CrashLogs> {
+                    CrashLogScreen(
+                        container = container,
+                        onBack = { backStack.removeLastOrNull() },
                     )
                 }
 

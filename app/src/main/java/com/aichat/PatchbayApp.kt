@@ -1,14 +1,20 @@
 package com.aichat
 
 import android.app.Application
+import com.aichat.crash.CrashContext
+import com.aichat.crash.CrashStore
+import com.aichat.crash.installCrashHandler
+import com.aichat.di.AndroidDeviceInfo
 import com.aichat.di.AppContainer
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 /**
- * 进程入口。只做三件事：建依赖容器、跑一次启动清理、把已装插件装进工具列表。
+ * 进程入口。只做四件事：装崩溃留痕、建依赖容器、跑一次启动清理、
+ * 把已装插件装进工具列表。
  *
  * ## 为什么不用 DI 框架
  *
@@ -16,6 +22,16 @@ import kotlinx.coroutines.launch
  * 「运行时才知道要注入什么」的场景。手写一个 [AppContainer] 就够了，
  * 而且能一眼看全对象的生命周期。等出现多实现切换、作用域嵌套这类需求
  * 再考虑引入 Hilt —— 那时手写才会真的开始难受。
+ *
+ * ## 崩溃留痕为什么排在最前面
+ *
+ * 它是**唯一一件「必须早于其他所有事」的事**。容器构造里要碰数据库、
+ * AndroidKeyStore、OkHttp，装配工具列表还要读插件表 —— 这些在个别 ROM 上
+ * 都可能炸，而那种「冷启动就崩」的崩溃恰恰是最需要堆栈的一类（用户除了
+ * 「打开就闪退」什么也说不出来）。装晚了就抓不到。
+ *
+ * 详见 `com.aichat.crash` 那两个文件的 KDoc：报告只写在本机、不联网、
+ * 不记任何应用状态。
  *
  * ## 启动清理为什么要在这里做
  *
@@ -44,6 +60,7 @@ class PatchbayApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogging()
         container = AppContainer(this)
         appScope.launch {
             container.recoverInterruptedMessages()
@@ -51,5 +68,31 @@ class PatchbayApp : Application() {
             // 的入口都没有。所以这里吞掉异常，插件列表页会把问题显示出来
             runCatching { container.tools.refresh() }
         }
+    }
+
+    /**
+     * 装崩溃留痕。**必须排在 [AppContainer] 之前**，理由见类注释。
+     *
+     * 元信息包在 lambda 里，是因为它要到**崩溃那一刻**才求值：版本号要读
+     * `PackageManager`、机型要读 `Build`，在 `onCreate` 里先读一遍等于给
+     * 每次冷启动都加一次没必要的主线程 I/O（而且绝大多数启动不会崩，
+     * 那些读到的值全都白读了）。
+     *
+     * 复用 [AndroidDeviceInfo] 而不是另写一份「读版本号」的代码：它已经是
+     * 这个仓库里唯一一处读 `versionName` / `Build.MODEL` 的地方，
+     * 再写一份迟早会和它给出不一样的机型名。
+     */
+    private fun installCrashLogging() {
+        val info = AndroidDeviceInfo(this)
+        installCrashHandler(
+            store = CrashStore(File(filesDir, CrashStore.DIR_NAME)),
+            context = {
+                CrashContext(
+                    appVersion = info.appVersion(),
+                    deviceModel = info.deviceModel(),
+                    osVersion = info.osVersion(),
+                )
+            },
+        )
     }
 }
