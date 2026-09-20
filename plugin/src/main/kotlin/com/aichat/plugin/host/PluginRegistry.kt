@@ -4,6 +4,7 @@ import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolRegistry
 import com.aichat.plugin.manifest.ManifestProblem
+import com.aichat.plugin.runtime.script.ScriptRuntime
 import okhttp3.OkHttpClient
 
 /**
@@ -147,15 +148,26 @@ class PluginRegistry private constructor(
          * [plugins] 里同一个 id 出现多次时只取第一个 —— 那是调用方（安装记录表）
          * 的问题，但让它在这里变成一个确定的行为，比让工具列表出现两份要好。
          */
+        /**
+         * [scripts] 是脚本运行时的宿主实现（`:app` 注入沙箱，纯 JVM 侧只有默认值）。
+         *
+         * 它必须从这里透传到 [PluginHost.tools]，而不是让 `PluginHost` 自己去
+         * 找引擎：**「这台设备能不能跑脚本」是装配期就要回答的问题**，
+         * 而装配的输入全在这一组参数里。给个默认值是为了保住那条性质 ——
+         * 现有调用点（含 25 处测试）一行都不用改，而默认值是
+         * [ScriptRuntime.Unavailable]，于是「没接引擎」时用户看到的仍是
+         * 明确的「宿主还不支持」，不是静默的空工具列表。
+         */
         fun build(
             builtins: List<Tool>,
             plugins: List<InstalledPlugin>,
             client: OkHttpClient,
+            scripts: ScriptRuntime = ScriptRuntime.Unavailable,
         ): PluginRegistry {
             val assembled = plugins
                 .distinctBy { it.manifest.id }
                 .sortedBy { it.manifest.id }
-                .map { PluginHost.tools(it, client) }
+                .map { PluginHost.tools(it, client, scripts) }
 
             val builtinNames = builtins.map { it.definition.name }.toSet()
 

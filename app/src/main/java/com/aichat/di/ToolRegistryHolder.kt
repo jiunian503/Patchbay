@@ -5,6 +5,7 @@ import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolRegistry
 import com.aichat.plugin.host.PluginRegistry
+import com.aichat.plugin.runtime.script.ScriptRuntime
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
@@ -43,6 +44,15 @@ class ToolRegistryHolder(
     private val builtins: () -> List<Tool>,
     private val plugins: PluginRepository,
     private val client: OkHttpClient,
+
+    /**
+     * 脚本运行时的宿主实现。
+     *
+     * 它一路透传到 [PluginRegistry.build] —— 装配期要回答的问题之一是
+     * 「这台设备能不能跑脚本」，而答案是**由宿主提供的**（`:plugin` 是纯 JVM，
+     * 自己碰不到 QuickJS）。默认值让不需要脚本的调用点不用知道它的存在。
+     */
+    private val scripts: ScriptRuntime = ScriptRuntime.Unavailable,
 ) : ToolRegistry {
 
     private val refreshLock = Mutex()
@@ -68,7 +78,7 @@ class ToolRegistryHolder(
      */
     suspend fun refresh(): PluginRegistry = refreshLock.withLock {
         val installed = plugins.installed()
-        PluginRegistry.build(builtins(), installed, client).also { current = it }
+        PluginRegistry.build(builtins(), installed, client, scripts).also { current = it }
     }
 
     override fun definitions(): List<ToolDefinition> = current.definitions()

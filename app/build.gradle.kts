@@ -138,7 +138,13 @@ android {
     }
     buildFeatures {
       compose = true
-      aidl = false
+      // 沙箱要跨进程，所以需要 AIDL。
+      //
+      // 为什么不绕开它（比如用 Messenger + Bundle）：脚本的一次调用是
+      // **同步的**，而 Messenger 那套是「发消息 + 等回调」，把它掰成同步要自己
+      // 维护一套请求/响应对应关系 —— 而 AIDL 生成的桩本来就是干这个的。
+      // 参数只有一个 String（JSON 文本），接口小到不值得为它发明一套协议。
+      aidl = true
       buildConfig = false
       shaders = false
     }

@@ -60,6 +60,22 @@ class PatchbayApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // 沙箱进程到这里就结束。**下面三件事它一件都不该做**：
+        //
+        // 1. 建 [AppContainer] —— 那要碰数据库、AndroidKeyStore、OkHttp，
+        //    而沙箱只负责跑一段脚本。它的 RSS 基线就是内存预算的起点，
+        //    多加载一整套依赖会白白吃掉插件的额度
+        // 2. 装崩溃留痕 —— 沙箱**本来就会崩**（插件把引擎搞崩是它要挡住的事），
+        //    把那些记进崩溃列表只会把真正的 App 崩溃淹掉
+        // 3. 启动清理 —— 那是主进程的事，两个进程同时做会互相打架
+        //
+        // 于是 [container] 在这个进程里始终是未初始化的。这不是疏漏：
+        // 沙箱进程只会走到 `ScriptSandboxService`，而它不碰容器。
+        // 真有人在这里引用了容器，会拿到一个明确的 `UninitializedPropertyAccessException`，
+        // 而不是一个「为什么沙箱里也在读数据库」的谜题
+        if (isSandboxProcess()) return
+
         installCrashLogging()
         container = AppContainer(this)
         appScope.launch {
@@ -94,5 +110,24 @@ class PatchbayApp : Application() {
                 )
             },
         )
+    }
+
+    /** 我是不是跑在脚本沙箱那个进程里。见 [SANDBOX_PROCESS_SUFFIX]。 */
+    private fun isSandboxProcess(): Boolean = getProcessName().endsWith(SANDBOX_PROCESS_SUFFIX)
+
+    companion object {
+        /**
+         * 沙箱进程名的后缀。
+         *
+         * **必须和 `AndroidManifest.xml` 里 `<service>` 的 `android:process=":sandbox"` 一致。**
+         * XML 里引用不了 Kotlin 常量，所以这只能靠人保持同步 ——
+         * 两处都写了这条注释，改的时候记得一起改。
+         *
+         * 对不上的后果是**沙箱进程会当成主进程启动**：建容器、读数据库、
+         * 装崩溃留痕全都跑一遍，而沙箱本来只想跑一段脚本。
+         * 症状是「插件的内存额度莫名其妙少了一大截」和「崩溃列表里
+         * 全是插件的崩」—— 两个都不好查，所以这条注释写在这里。
+         */
+        const val SANDBOX_PROCESS_SUFFIX = ":sandbox"
     }
 }

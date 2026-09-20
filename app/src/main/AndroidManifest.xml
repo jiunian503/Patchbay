@@ -77,6 +77,30 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          脚本沙箱。**跑在单独的进程里**（`:sandbox`），这是整个脚本插件形态的
+          安全边界所在，不是「顺手加个 process 属性」。
+
+          为什么必须是另一个进程：解释器内部没有任何可用的中断入口。
+          实测 `while(true)` 会把引擎线程永久占死、连 `close()` 都不返回
+          （§82），而清单里的 timeoutMs / memoryLimitMb 是要**兑现**的。
+          进程外是唯一能让它们兑现的地方 —— 超时靠断开绑定让沙箱自杀，
+          内存靠沙箱自己盯 RSS 自杀。进程内实现这两条就是空头支票。
+
+          副作用是好的：插件把引擎搞崩（native 崩、吃光内存被系统杀）时，
+          死的是沙箱进程，App 本身毫发无伤。
+
+          exported="false"：只有本 App 能绑它。它不接受任何外部输入，
+          而它执行的是第三方代码 —— 没有理由让它可达。
+
+          process 的名字（`:sandbox`）必须和 `PatchbayApp.SANDBOX_PROCESS_SUFFIX`
+          一致：那边靠它决定「我在沙箱进程里，什么初始化都不做」。
+        -->
+        <service
+            android:name=".sandbox.ScriptSandboxService"
+            android:exported="false"
+            android:process=":sandbox" />
     </application>
 
 </manifest>

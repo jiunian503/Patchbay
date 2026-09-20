@@ -29,6 +29,8 @@ import com.aichat.network.RemoteTextFetcher
 import com.aichat.plugin.host.InstalledPlugin
 import com.aichat.plugin.host.McpRefresh
 import com.aichat.plugin.host.PluginHost
+import com.aichat.plugin.runtime.script.ScriptRuntime
+import com.aichat.sandbox.QuickJsSandboxRuntime
 import com.aichat.settings.AppSettings
 import com.aichat.settings.SettingsWebSearchSource
 import com.aichat.tools.BuiltinTools
@@ -155,6 +157,26 @@ class AppContainer(context: Context) : ChatDeps {
     )
 
     /**
+     * 脚本插件的运行时：`:sandbox` 进程里的 QuickJS。
+     *
+     * ## 为什么是注入而不是 `:plugin` 自己引
+     *
+     * `:plugin` 必须保持纯 JVM（§44 铁律）—— QuickJS 是带 `.so` 的 AAR，
+     * 引进去整个模块变 Android library，所有插件测试从秒级变分钟级。
+     * 所以那边只有一个窄接口，实现由这里注入。`DeviceInfoSource` /
+     * `WebSearchSource` 给 `:tools` 也是同一个模式，这是第二次用。
+     *
+     * ## 装配期就要读它
+     *
+     * `PluginRegistry.build` 会读 [ScriptRuntime.available] 来决定
+     * 「这台设备能不能跑 script 形态的插件」。读它不会加载原生库
+     * （见 `QuickJsSandboxRuntime.available`），所以放在这里没有冷启动代价。
+     */
+    private val scripts: ScriptRuntime by lazy {
+        QuickJsSandboxRuntime(context = appContext, filesDir = appContext.filesDir)
+    }
+
+    /**
      * 模型能看到的工具集合。**内置工具 + 已装插件**。
      *
      * 内置工具里 `search_history` 依赖 [search]（历史检索）。两者都是
@@ -181,6 +203,7 @@ class AppContainer(context: Context) : ChatDeps {
             builtins = ::activeBuiltins,
             plugins = plugins,
             client = pluginHttpClient,
+            scripts = scripts,
         )
     }
 
@@ -258,22 +281,13 @@ class AppContainer(context: Context) : ChatDeps {
     /**
      * 插件发起网络请求用的客户端。
      *
-     * 和对话用的客户端分开：插件请求的读超时该短得多（一个天气查询等 5 分钟
-     * 没有意义），而对话流式响应可能要等好几分钟。
+     * 配置搬到了 [pluginHttpClient] 那个工厂函数里 —— 因为**沙箱进程也要用
+     * 同一份配置**（`host.http` 走的就是它），而两个进程不可能共用一个实例。
+     * 各写一遍 Builder 的话，改了超时只改一处，另一处静默地用着旧值。
      *
-     * 也**不要**在这里开重定向 —— `NetworkGuard` 会自己一跳一跳地跟，
-     * 每一跳都要过白名单（见它的 KDoc）。开了自动重定向等于把白名单
-     * 交给对端决定。
+     * 为什么和对话用的客户端分开、为什么必须关重定向，理由都在那个函数的 KDoc 里。
      */
-    private val pluginHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .build()
-    }
+    private val pluginHttpClient: OkHttpClient by lazy { pluginHttpClient() }
 
     /**
      * 拉取远端清单用的客户端。
