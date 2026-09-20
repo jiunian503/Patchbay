@@ -95,7 +95,7 @@ ls app/build/outputs/apk/release/
 
 1. 目录里出现的是 **`app-release.apk`**，不是 `app-release-unsigned.apk`
 2. `apksigner` 输出 `Verifies`，且证书 DN 是你 `-dname` 里填的那个
-3. **`lib/` 下只有两个 ABI 目录**（`arm64-v8a` / `armeabi-v7a`）：
+3. **`lib/` 下只有一个 ABI 目录**（`arm64-v8a`）：
 
 ```bash
 python -c "
@@ -105,15 +105,28 @@ print(sorted(set(i.filename.split('/')[1] for i in z.infolist() if i.filename.st
 "
 ```
 
+4. **`.so` 的对齐没变**（只有一个库是 16 KB 对齐的，两个 QuickJS 的仍是 4 KB）：
+
+```bash
+python tools/elf_align.py app/build/outputs/apk/release/app-release.apk
+```
+
 ⚠️ 少了 `keystore.properties`（或四个键有缺的）时 AGP 会**静默退回产出 unsigned 包**，
 不报错。所以「看产物名」这一步不能省。
 
-> **release 包不带 `x86_64`**（只带 `arm64-v8a` + `armeabi-v7a`，见 SKILL.md §88）。
+> **release 包只带 `arm64-v8a`**（见 SKILL.md §88）。
 > 要把它装进模拟器压一遍（§69 要求）时，靠的是模拟器的 **ARM 翻译层** ——
 > MuMu 12 有（`getprop ro.product.cpu.abilist64` 里能读到 `arm64-v8a`），
 > 别的镜像**不一定有**。装之前先看那个 prop：没有 `arm64-v8a` 就会报
 > `INSTALL_FAILED_NO_MATCHING_ABIS` —— 那时**用 debug 包验**（四个 ABI 全在），
 > 别去改 release 的过滤。
+>
+> **装完第一句看 `dumpsys package … | grep primaryCpuAbi`**，期望 `arm64-v8a`。
+> 拿到 `null` 就说明包不对。
+>
+> 用户那边：**32 位 only 的老设备（停在 Android 9 及更早）装不上**，报的也是
+> `INSTALL_FAILED_NO_MATCHING_ABIS`。这是这一刀明确的代价 —— 要照顾它们就把
+> `armeabi-v7a` 加回 `buildTypes.release.ndk.abiFilters`，一行。
 
 ---
 

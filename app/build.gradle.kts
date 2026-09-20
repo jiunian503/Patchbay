@@ -128,7 +128,7 @@ android {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
 
-            // ── ABI 策略：release 只带真实设备用得到的两个 ──────────────────
+            // ── ABI 策略：release 只带 arm64-v8a ──────────────────────────
             //
             // 不设这一段的话四个 ABI 全进包，而 `lib/` 下那 12 个 `.so` 占
             // **4.58 MB / 8.70 MB（53%）**（实测：拿 `zipfile` 逐条统计当前 release APK）。
@@ -136,27 +136,36 @@ android {
             // 所以 R8 一点都缩不掉 —— 砍 ABI 是体积这一项上唯一的杠杆。
             // 别去试 `isShrinkResources`：`res/` + `assets/` + 其它全部加起来只有 107 KB。
             //
-            // 砍掉的两个：
+            // 砍掉的三个：
             //
-            //   `x86`    —— 32 位 x86。API 28 以上的 x86 设备**不存在**
-            //               （Intel 那批手机/平板停在 Android 6-7），
-            //               32 位 x86 的模拟器镜像也没人在用。
-            //   `x86_64` —— 模拟器与 ChromeOS 的 ABI，不是任何手机的。
-            //               这个 App 是侧载发版（GitHub Releases），用户装的是自己的手机。
+            //   `x86`         —— 32 位 x86。API 28 以上的 x86 设备**不存在**
+            //                    （Intel 那批手机/平板停在 Android 6-7），
+            //                    32 位 x86 的模拟器镜像也没人在用。
+            //   `x86_64`      —— 模拟器与 ChromeOS 的 ABI，不是任何手机的。
+            //                    这个 App 是侧载发版（GitHub Releases），用户装的是自己的手机。
+            //   `armeabi-v7a` —— 32 位 ARM，**这条是唯一有真实代价的**（省 592 KB）。
             //
-            // 留下 `armeabi-v7a` 是因为它**便宜**：584 KB 换「任何一台真机都能装」。
-            // 32 位 ARM 的 Android 9+ 设备很少，但确实存在，而砍掉它失去的不是
-            // 某个功能而是整个 App —— 报的是 `INSTALL_FAILED_NO_MATCHING_ABIS`。
-            // 想再省这 584 KB 就删掉它（见 SKILL.md §88）。
+            // ## 为什么敢砍 `armeabi-v7a`
+            //
+            // 判据是「**还有多少真机只能装它**」，而不是「能省多少」：
+            //
+            //  - 一台 64 位 ARM 设备**一定**在 `abilist` 里有 `arm64-v8a`，
+            //    所以砍掉 armv7 **不影响任何 64 位手机** —— 而 2019 年起
+            //    Google Play 就要求新上架应用提供 64 位版本，64 位早已是绝大多数
+            //  - 只剩「**32 位 only** 的老设备」装不上，报
+            //    `INSTALL_FAILED_NO_MATCHING_ABIS`。这类设备已经停在 Android 9 及更早
+            //
+            // 也就是说这一刀换的是「少数几年前的 32 位老机装不上」，代价是**明确**的、
+            // 而且报错信息本身能说清原因（不像 `splits` 那种「下错包」的报错）。
+            // 真要照顾它们，把 `armeabi-v7a` 加回来即可 —— 一行。
             //
             // ## 为什么是 `abiFilters` 而不是 `splits`
             //
-            // `splits { abi { … } }` 能每个 ABI 出一个 APK，用户只下自己那份
-            // （arm64 那档约 5.4 MB）。**但侧载发版用不了它**：GitHub Releases
-            // 不会替你挑 APK，用户得自己知道手机是 arm64 还是 armv7 ——
+            // `splits { abi { … } }` 能每个 ABI 出一个 APK。**但侧载发版用不了它**：
+            // GitHub Releases 不会替你挑 APK，用户得自己知道手机是 arm64 还是 armv7 ——
             // 绝大多数人不知道，于是下错一个、装不上，而报出来的是一句
             // 和真实原因无关的「解析软件包时出现问题」。Play 能按设备下发，这里不能。
-            // 一个 APK、点开就装，比省那 1.4 MB 值钱。
+            // 一个 APK、点开就装，比多一个包值钱。
             //
             // ## 为什么 debug 不跟着砍
             //
@@ -165,7 +174,7 @@ android {
             // 过滤只加在 release，debug 四个 ABI 全留，`connectedDebugAndroidTest`
             // 一行都不用改。
             ndk {
-                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+                abiFilters += listOf("arm64-v8a")
             }
 
             // 有 `keystore.properties` 就是它，没有就是 null —— null 时 AGP
