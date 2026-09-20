@@ -12,9 +12,13 @@
  *       host.settings           用户在安装时填的配置
  *       host.log(msg)           写入插件日志，便于排查
  *
- * 铁律：本文件必须是纯 JS。
- * Android 上运行时下载的 .so 无法 dlopen（targetSdk≥29 被 SELinux 拦），
- * 所以任何带原生扩展的 npm 包（node-pty、sharp、better-sqlite3…）都用不了。
+ * 铁律：本文件必须是**纯 JS、零依赖**。
+ *
+ * 运行时是 QuickJS（不是 Node）：**没有 npm，连 `require` 都没有**，所有逻辑得自己写；
+ * 沙箱里也没有 IO，要联网只能调 host.http。所以上面那句「纯 JS」不是风格偏好，
+ * 是唯一可行的写法 —— 顺带一提，Android 上运行时下载的 .so 也无法 dlopen
+ * （targetSdk≥29 被 SELinux 拦），带原生扩展的包（node-pty、sharp、
+ * better-sqlite3…）本来也用不了。
  */
 
 function parseCsv(text) {

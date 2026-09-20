@@ -4,7 +4,10 @@ import java.io.File
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.StructureKind
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -220,6 +223,64 @@ class ManifestModelTest {
     }
 
     /**
+     * schema 里每个 `enum` 节点的取值，必须和 Kotlin 枚举的序列化名字**完全一样**。
+     *
+     * ## 为什么补这一条
+     *
+     * 五十六轮把 `ScriptRuntimeKind` 的 `Node` 换成 `QuickJs` 时发现：改一个枚举要同时动
+     * **四处**（Kotlin 枚举 / schema 的 `enum` / schema 的 `default` / 示例清单），
+     * 而其中 schema 那两处**一处都没有测试守** —— `枚举的序列化名字被钉住` 只钉 Kotlin
+     * 那一侧，schema 里的取值是手工维护的。那次是靠人肉 grep 收的尾。
+     *
+     * 这个洞和 `schema 和 Kotlin 模型的字段名一一对应` 补的是同一类问题（§67：
+     * 「schema 是一份没有守卫的承诺」），只是那次守的是**字段名**，这次守**取值**。
+     * 后果也同构：
+     *
+     * - **schema 多一个值** → 作者照着写，`ManifestParser` 严格解析，直接失败
+     * - **schema 少一个值** → 那个值过不了 schema 校验，等于对作者不存在
+     *
+     * ## 一个陷阱：这个 schema 里有个字段**就叫 `enum`**
+     *
+     * `SettingSpec` 有一个名为 `enum` 的字段（`type: "enum"` 时的取值列表），它的值是
+     * `{"type":"array"}`。所以扫描时**只认「值是字符串数组」的 `enum`** ——
+     * 不区分的话会把那个字段声明当成枚举约束，然后报一个看不懂的「多了一个节点」。
+     */
+    @Test
+    fun `schema 里的 enum 和 Kotlin 枚举一一对应`() {
+        val schema = readSchema()
+
+        // ① 先保证映射表本身没漏 —— 两个方向都要报，理由同字段名那条
+        val fromSchema = enumPaths(schema)
+        assertEquals(
+            "schema 里出现了没被 SCHEMA_TO_ENUM 映射的枚举节点，它们的取值一致性没被检查",
+            emptySet<String>(),
+            fromSchema - SCHEMA_TO_ENUM.keys,
+        )
+        assertEquals(
+            "SCHEMA_TO_ENUM 指向了 schema 里不存在的路径（改了 schema 结构没改映射？）",
+            emptySet<String>(),
+            SCHEMA_TO_ENUM.keys - fromSchema,
+        )
+
+        // ② 逐节点比对取值
+        SCHEMA_TO_ENUM.forEach { (path, descriptor) ->
+            val fromKotlin = serialNames(descriptor).toSet()
+            val declared = navigate(schema, path)["enum"]!!.jsonArray
+                .map { it.jsonPrimitive.content }
+                .toSet()
+
+            assertEquals(
+                "$path 两边不一致 —— schema 多声明了 ${declared - fromKotlin}，" +
+                    "少声明了 ${fromKotlin - declared}。" +
+                    "多的那部分会让作者写出一份宿主直接解析失败的清单，" +
+                    "少的那部分会让那个值对作者等于不存在",
+                fromKotlin,
+                declared,
+            )
+        }
+    }
+
+    /**
      * schema 里每个对象节点都必须是**封闭**的（`additionalProperties: false`）。
      *
      * ## 为什么这条是必须的
@@ -299,6 +360,30 @@ class ManifestModelTest {
 
     private fun serialNames(descriptor: SerialDescriptor): List<String> =
         (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }
+
+    /**
+     * 递归找出 schema 里所有「值是字符串数组」的 `enum` 节点，返回它们的 `/` 路径。
+     *
+     * 只认字符串数组 —— 这个 schema 里有一个**字段名叫 `enum`**
+     * （`SettingSpec` 的取值列表，值是 `{"type":"array"}`）。不区分的话会把它当成
+     * 枚举约束，然后报一个「多了个节点」的错，而那个错会指向一个完全无关的地方。
+     */
+    private fun enumPaths(
+        node: JsonElement,
+        path: String = "",
+        out: MutableSet<String> = mutableSetOf(),
+    ): Set<String> {
+        if (node !is JsonObject) return out
+
+        val declared = node["enum"]
+        if (declared is JsonArray && declared.all { it is JsonPrimitive && it.isString }) {
+            out += path
+        }
+        node.forEach { (key, child) ->
+            enumPaths(child, if (path.isEmpty()) key else "$path/$key", out)
+        }
+        return out
+    }
 
     /**
      * 从 [PluginManifest] 的描述符出发，收集**模型里所有类**（简单名 → 描述符）。
@@ -402,6 +487,34 @@ class ManifestModelTest {
             // AuthSpec 在清单里出现两次（声明式和 MCP 各一份），schema 也照着写了两份
             "\$defs/entryDeclarative/properties/auth" to "AuthSpec",
             "\$defs/entryMcp/properties/auth" to "AuthSpec",
+        )
+
+        /**
+         * schema 里的枚举节点路径 → 对应的 Kotlin 枚举描述符。
+         *
+         * 和 [SCHEMA_TO_CLASS] 同构：只留「两边命名/位置不同」这一层，取值一个都不抄
+         * （那些从描述符里取）。漏映射会有明确信号 —— `schema 里的 enum 和 Kotlin
+         * 枚举一一对应` 里那两条集合断言会红。
+         *
+         * **`AuthType` 出现两次**（声明式和 MCP 各一个 auth 段），和 [SCHEMA_TO_CLASS]
+         * 里 `AuthSpec` 出现两次是同一个原因。
+         *
+         * `HttpMethod` 也在这里 —— 它的 `@SerialName` 和 `wire` 的一致性由
+         * `HttpMethod 的 wire 和序列化名字一致，字面值也被钉住` 那条测试管，
+         * 这里管的是「schema 认不认这些值」。
+         */
+        val SCHEMA_TO_ENUM: Map<String, SerialDescriptor> = mapOf(
+            "properties/runtime" to PluginRuntimeKind.serializer().descriptor,
+            "properties/settings/additionalProperties/properties/type" to
+                SettingType.serializer().descriptor,
+            "\$defs/permissions/properties/filesystem" to FilesystemScope.serializer().descriptor,
+            "\$defs/permissions/properties/device/items" to DeviceCapability.serializer().descriptor,
+            "\$defs/entryDeclarative/properties/auth/properties/type" to
+                AuthType.serializer().descriptor,
+            "\$defs/entryMcp/properties/auth/properties/type" to AuthType.serializer().descriptor,
+            "\$defs/entryScript/properties/runtime" to ScriptRuntimeKind.serializer().descriptor,
+            "\$defs/entryMcp/properties/transport" to McpTransport.serializer().descriptor,
+            "\$defs/request/properties/method" to HttpMethod.serializer().descriptor,
         )
     }
 }

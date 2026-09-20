@@ -50,7 +50,7 @@ enum class PluginRuntimeKind {
     @SerialName("declarative")
     Declarative,
 
-    /** 内置 JS 解释器跑插件自带的脚本。 */
+    /** 内置 JS 解释器跑插件自带的脚本。解释器是 **QuickJS**（不是 Node，理由见 [ScriptRuntimeKind]）。 */
     @SerialName("script")
     Script,
 
