@@ -131,12 +131,10 @@ python tools/archive_release.py                # 验过了再归档
 > 改过这个脚本之后，跑一遍它自己的判据测试（18 条，零依赖）：
 > `python tools/tests/test_archive_release.py`
 
-### 8. 上传到 GitHub Release 附件
-
-**这一步目前是手工的**（本机没装 `gh` CLI）。
+### 8. 推代码 + 建 Release
 
 `origin` = `https://github.com/jiunian503/Patchbay.git`（**仓库名是大写 P**；GitHub 对
-大小写不敏感、会重定向，但配成一致更干净）。仓库已建好、代码已推上去。以后改完代码：
+大小写不敏感、会重定向，但配成一致更干净）。以后改完代码：
 
 ```bash
 git push
@@ -148,11 +146,39 @@ git push
 
 用 **HTTPS 而不是 SSH**：这台机器 `~/.ssh/` 下只有 `known_hosts`、**没有密钥**，
 `git@github.com:...` 会直接报 `Permission denied (publickey)`。
-HTTPS 首次推送会弹一个凭据窗口（Git for Windows 自带的凭据管理器），走一次 GitHub 登录就行。
-真想用 SSH 的话，先 `ssh-keygen -t ed25519` 再把公钥加到 GitHub 账号里。
 
-然后到 GitHub 上建 Release（tag 用 `v1.0` 之类），把 `dist/patchbay-1.0/` 里的
-**`patchbay-1.0.apk` 和 `mapping.txt`** 作为附件传上去。
+**`gh` CLI 已装**（`C:\Program Files\GitHub CLI\gh.exe`，v2.101.0）。建 Release 一条命令：
+
+```bash
+GH="/c/Program Files/GitHub CLI/gh.exe"
+TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill | sed -n 's/^password=//p')
+
+GH_TOKEN="$TOKEN" "$GH" release create v1.0 \
+  --repo jiunian503/Patchbay \
+  --title "Patchbay 1.0" \
+  --notes-file <说明.md> \
+  --target master \
+  dist/patchbay-1.0/patchbay-1.0.apk \
+  dist/patchbay-1.0/mapping.txt
+```
+
+⚠️ **两个附件都要传** —— 只传 APK 的话，以后用户发来的崩溃堆栈就永远读不懂了。
+
+**为什么用 `GH_TOKEN` 而不是 `gh auth login`**：前者不落盘（token 只在那一条命令的环境里），
+后者会把它写进 `~/.config/gh/hosts.yml`。token 直接从 git 凭据管理器取（那里本来就有一份），
+不必另外申请。
+
+> `gh auth status` 会提示 `Missing required token scopes: 'read:org'` —— **不用管**，
+> 个人仓库的 Release 操作只要 `repo` scope。
+
+其他常用命令：
+
+```bash
+GH_TOKEN="$TOKEN" "$GH" release view v1.0 --repo jiunian503/Patchbay --json assets \
+  --jq '.assets[] | "\(.name)  \(.size) B  \(.state)"'          # 核对附件传全了没
+GH_TOKEN="$TOKEN" "$GH" release delete v1.0 --repo jiunian503/Patchbay --cleanup-tag
+GH_TOKEN="$TOKEN" "$GH" release edit v1.0 --repo jiunian503/Patchbay --notes-file <新说明.md>
+```
 
 ⚠️ `dist/` 不入库（45 MB）但**必须上传** —— 归档目录丢了，那一版的线上崩溃就永远读不懂了。
 
