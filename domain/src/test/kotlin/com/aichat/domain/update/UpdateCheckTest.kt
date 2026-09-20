@@ -85,8 +85,12 @@ class UpdateCheckTest {
 
     @Test
     fun `远端 tag 带 v 前缀时能对上当前版本`() {
-        // 这是**实际发版的形态**：versionName 是 `1.1`，tag 是 `v1.1`。
-        // 两边形态本来就不一样，所以规整放在 checkForUpdate 里做
+        // 发版时的实际形态：`versionName` **不带** `v`，git tag **带**（如 `1.2` vs `v1.2`）。
+        // 两边形态本来就不一样，所以规整放在 checkForUpdate 里做。
+        //
+        // 这里刻意用 `1.1` 当夹具而**不跟着发版改**：验的是「剥不剥 `v`」这件事，
+        // 和当前是哪一版无关。别把夹具改成「当前版本」—— 那会让这条用例
+        // 每发一版就过期一次。
         assertEquals(
             UpdateStatus.UpToDate(current = "1.1"),
             checkForUpdate(current = "1.1", latestTag = "v1.1"),

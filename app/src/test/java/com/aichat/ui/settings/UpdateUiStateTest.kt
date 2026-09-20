@@ -32,7 +32,8 @@ class UpdateUiStateTest {
 
     @Test
     fun `远端和当前一样时报已是最新`() {
-        // 实际发版的形态：versionName 是 `1.1`，tag 是 `v1.1`
+        // 发版时的实际形态：`versionName` 不带 `v`，git tag 带（如 `1.2` vs `v1.2`）。
+        // 夹具固定用 `1.1`，**不跟着发版改** —— 验的是「剥不剥 `v`」，与当前是哪一版无关
         assertEquals(
             UpdateUiState.UpToDate(current = "1.1"),
             resolveUpdate(currentVersion = "1.1", lookup = found("v1.1")),
