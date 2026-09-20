@@ -58,6 +58,32 @@ class PluginWorkspaces(private val base: File) {
     }
 
     /**
+     * **宿主**（也就是用户界面）用的全权视图。
+     *
+     * ## 为什么它不受插件声明的读写方向约束
+     *
+     * [open] 拿到的权限来自插件清单里的 `permissions.filesystem`，那是
+     * **插件对自己**的约束：声明 `read` 的插件不许写。但宿主不是插件 ——
+     * 用户往自己的工作区里放一个文件，插件依然只是「读」它，一点都没越界。
+     * 拿插件的声明去限制用户，会得出「只读插件的工作区不能导入文件」这种
+     * 结论，而那显然是错的。
+     *
+     * 所以这里一律以 [FilesystemScope.ReadWrite] 打开。**用户是主人。**
+     *
+     * ## 为什么它不建目录
+     *
+     * [open] 建目录是因为插件作者会写 `if (!host.fs.exists("."))` 这种代码，
+     * 需要「有权限就一定有目录」这条硬保证。宿主这边没有这个问题：
+     * 用户可能只是**看一眼**工作区里有什么，看一眼不该凭空造出一个目录来
+     * （那会让一个从没写过东西的插件多出一个空目录，而且它不在卸载清理
+     * 的触发路径上，只能等 [sweep] 对账 —— 而插件记录还在，sweep 不会碰它）。
+     *
+     * 真正要写的时候 [PluginWorkspace.writeBytes] 自己会 `mkdirs`。
+     */
+    fun adminOf(pluginId: String): PluginWorkspace =
+        PluginWorkspace(dir = dirOf(pluginId), scope = FilesystemScope.ReadWrite)
+
+    /**
      * 删掉这个插件的工作区。**卸载时调**，所以它不看权限 ——
      * 用户决定卸载了，插件声明过什么都得清干净。
      *
@@ -164,6 +190,9 @@ class PluginWorkspaces(private val base: File) {
  * （`SandboxEngine.MAX_BODY_BYTES`）。所以「插件最多能存下它一次能看到的东西」——
  * 一个能解释给作者听的界，而不是一个魔法数字。
  *
+ * 前三条是**公开**的：详情页要拿它们显示「12 KB / 8 MB」这样的用量，
+ * 导入文件时也要先自己判一次、好给出用户能看懂的话术。
+ *
  * ## 为什么上限必须在**这一层**执行
  *
  * 沙箱每次调用都是一个新进程，所以**进程内的用量不会累积** —— 但工作区会。
@@ -175,6 +204,9 @@ class PluginWorkspaces(private val base: File) {
  * message 是**写给插件作者看的**：说清哪条规矩、为什么、下一步怎么办。
  * 它最终会变成 JS 里的 `Error`（沙箱把它包成 `{ok:false,error}`，
  * 由 prelude 抛出），所以措辞要能直接出现在插件作者的调试信息里。
+ *
+ * 宿主侧（[PluginWorkspaces.adminOf]）拿到的是同一个类型，但**调用方有责任
+ * 把它翻成用户话术** —— 作者看的「请拆成多个文件再写」对用户是没有意义的。
  */
 class PluginWorkspace internal constructor(
     private val dir: File,
@@ -218,10 +250,29 @@ class PluginWorkspace internal constructor(
      * 只会让每个人多写一行 `if`。
      */
     fun write(path: String, text: String) {
+        writeBytes(path, text.toByteArray(StandardCharsets.UTF_8))
+    }
+
+    /**
+     * 写一个文件，**按字节**。
+     *
+     * ## 为什么除了 [write] 还要有这个
+     *
+     * 因为用户的文件不是 UTF-8 字符串。从文件选择器导入一份中文 CSV 时，
+     * 它很可能是 GBK 编码的 —— 先按 UTF-8 解码成 `String` 再编码写回，
+     * 那串字节**已经损坏了**（非法字节变成 U+FFFD，而且长度会变），
+     * 插件拿到手的就是一份读不懂的数据，而界面上什么都看不出来。
+     *
+     * 字节进出，工作区里就是用户选中那个文件的**原样**。
+     *
+     * 限额检查只有这一份实现（[write] 是它的薄包装）—— 两条路各写一遍的话，
+     * 漏掉一条的后果是「有一条写入路径不受上限约束」，而那种洞从界面上
+     * 完全看不出来。
+     */
+    fun writeBytes(path: String, bytes: ByteArray) {
         requireScope(needWrite = true)
         val file = resolve(path)
 
-        val bytes = text.toByteArray(StandardCharsets.UTF_8)
         if (bytes.size > MAX_FILE_BYTES) {
             throw WorkspaceException(
                 "要写的内容有 ${bytes.size / 1024} KB，超过 ${MAX_FILE_BYTES / 1024} KB 的单文件上限。" +
@@ -241,14 +292,14 @@ class PluginWorkspace internal constructor(
         }
         if (!file.isFile && existing.entries >= MAX_ENTRIES) {
             throw WorkspaceException(
-                "工作区已经有 ${existing.entries} 个文件，到达 ${MAX_ENTRIES} 个的上限。" +
+                "工作区已经有 ${existing.entries} 个文件，到达 $MAX_ENTRIES 个的上限。" +
                     "先删掉不再需要的文件再写。",
             )
         }
 
         try {
             file.parentFile?.mkdirs()
-            file.writeText(text, StandardCharsets.UTF_8)
+            file.writeBytes(bytes)
         } catch (e: IOException) {
             throw WorkspaceException("写「$path」失败：${e.message ?: e::class.simpleName}。")
         }
@@ -267,6 +318,8 @@ class PluginWorkspace internal constructor(
      * 的需求。插件要判断「是不是目录」，用 `host.fs.exists(p + "/")`
      * 这种写法是不可靠的，所以这里**顺带说明**：本 API 不提供区分手段，
      * 插件应该按自己写下的命名约定来组织工作区。
+     *
+     * （宿主要看大小和类型，用 [allFiles] —— 那一侧不需要跟插件协议兼容。）
      */
     fun list(path: String): List<String> {
         requireScope(needWrite = false)
@@ -280,6 +333,75 @@ class PluginWorkspace internal constructor(
         }
 
         return target.list()?.sorted() ?: emptyList()
+    }
+
+    /**
+     * 工作区里的**全部文件**，递归展开，按路径排序。
+     *
+     * 路径是**相对工作区根**的，分隔符一律 `/`（`invariantSeparatorsPath`）——
+     * 插件在 JS 里看到的也是 `/`，两边必须一致，否则界面上显示
+     * `cache\a.csv` 而插件要写 `cache/a.csv`，用户照着界面填就错了。
+     *
+     * ## 为什么递归，而不是只列顶层
+     *
+     * 插件完全可能把东西写在子目录里（`cache/`、按日期分的目录）。
+     * 只列顶层的话，用户会看到一个目录名、看不到里面有什么，
+     * 然后合理地以为「我导入的文件不见了」。
+     *
+     * ## 深度上限和 `resolve` 的是同一个
+     *
+     * `resolve` 保证写进来的路径不超过 [MAX_DEPTH] 层，所以这里不会漏掉
+     * 任何文件。加这个上限是为了让遍历有个头 —— 它防的是遍历失控
+     * （目录成环），而不是文件太多。
+     */
+    fun allFiles(): List<WorkspaceFile> {
+        requireScope(needWrite = false)
+        if (!dir.isDirectory) return emptyList()
+
+        val root = dir.canonicalFile
+        return root.walkTopDown()
+            .maxDepth(MAX_DEPTH)
+            .filter { it.isFile }
+            .map { WorkspaceFile(path = it.relativeTo(root).invariantSeparatorsPath, bytes = it.length()) }
+            .sortedBy { it.path }
+            .toList()
+    }
+
+    /**
+     * 删掉工作区里的一个**文件**。
+     *
+     * 返回「真的删掉了」。**本来就不存在也返回 `false`** —— 调用点（界面）
+     * 要据此决定提示什么，而「删掉了一个不存在的东西」和「删成功了」
+     * 是两件不同的事。
+     *
+     * 传进来的如果是个目录，直接返回 `false`，**不递归删** —— 界面只会
+     * 把 [allFiles] 的结果给用户点，那里没有目录；真有目录混进来，
+     * 静默递归删掉一整棵子树是个太重的后果。
+     */
+    fun remove(path: String): Boolean {
+        requireScope(needWrite = true)
+        val file = resolve(path)
+        if (!file.isFile) return false
+        return runCatching { file.delete() }.getOrDefault(false)
+    }
+
+    /**
+     * 当前用量。每次写都要算一遍，所以它必须便宜 —— 条目有上限，走一遍是够快的。
+     *
+     * 深度上限和 [allFiles] 同一个理由（见那里的说明）。
+     */
+    fun usage(): WorkspaceUsage {
+        if (!dir.isDirectory) return WorkspaceUsage(0, 0L)
+
+        var entries = 0
+        var bytes = 0L
+        dir.walkTopDown().maxDepth(MAX_DEPTH).forEach {
+            if (it.isFile) {
+                entries++
+                bytes += it.length()
+            }
+        }
+        return WorkspaceUsage(entries, bytes)
     }
 
     // ------------------------------------------------------------------ 内部
@@ -356,29 +478,108 @@ class PluginWorkspace internal constructor(
         return target
     }
 
-    /** 当前用量。每次写都要算一遍，所以它必须便宜 —— 条目有上限，走一遍是够快的。 */
-    private fun usage(): Usage {
-        if (!dir.exists()) return Usage(0, 0L)
-        var entries = 0
-        var bytes = 0L
-        dir.walkTopDown().forEach {
-            if (it.isFile) {
-                entries++
-                bytes += it.length()
-            }
-        }
-        return Usage(entries, bytes)
-    }
-
-    private data class Usage(val entries: Int, val bytes: Long)
-
-    private companion object {
+    companion object {
+        /**
+         * 单文件上限。**这个数字要和 `host.http` 的响应体上限一致**
+         * （`SandboxEngine.MAX_BODY_BYTES`）—— 那样「插件最多能存下它
+         * 一次能看到的东西」这句话才成立，作者能理解，而不是记住一个魔法数。
+         */
         const val MAX_FILE_BYTES = 1 * 1024 * 1024
+
+        /** 一个插件的工作区总共能用多少。 */
         const val MAX_TOTAL_BYTES = 8 * 1024 * 1024
+
+        /** 文件数上限。 */
         const val MAX_ENTRIES = 256
-        const val MAX_DEPTH = 16
+
+        /**
+         * 路径深度上限。**这个不公开** —— 界面上没有「还有几层」这回事，
+         * 公开它只会让调用点多一个可以传错的参数。
+         */
+        private const val MAX_DEPTH = 16
+
+        /**
+         * 文件名长度上限，按**字符**数算。
+         *
+         * 取 60 是因为 ext4 的上限是 255 **字节**，而 UTF-8 一个字符最多
+         * 4 字节 —— 60 × 4 = 240，留了一点余量。按字符数而不是字节数限制，
+         * 是因为「这个名字有多长」对用户来说是几个字，不是几个字节。
+         */
+        private const val MAX_NAME_CHARS = 60
+
+        /** 名字完全洗不出来时用什么。 */
+        private const val FALLBACK_NAME = "file"
+
+        /**
+         * 把一个**外部来的**文件名洗成工作区里能用的名字。
+         *
+         * ## 为什么必须洗
+         *
+         * 名字来自 SAF（`OpenableColumns.DISPLAY_NAME`），也就是文件提供方
+         * 说了算。它可能是 `Download/foo.csv`（带路径）、可能带控制字符、
+         * 可能长到让 `createNewFile` 抛 `ENAMETOOLONG`（那个报错信息里
+         * 只有一个 errno，指不到「文件名太长」这件事上）。
+         *
+         * 直接把它拼进工作区路径，最坏的情况不是报错，是**写到了别的地方** ——
+         * 带 `/` 的名字会被 [resolve] 当成子目录，于是用户的文件悄悄跑进了
+         * 一个他没听说过的目录。
+         *
+         * ## 洗的规则，以及为什么是这几条
+         *
+         * - 先取最后一段（`a/b.csv` → `b.csv`）。带路径的名字**截断**而不是
+         *   拒绝：用户选的就是那个文件，没道理因为提供方多给了几个字就失败
+         * - 去掉控制字符和残留的分隔符
+         * - 去掉**前导的点**：`.` 和 `..` 是路径里的特殊名，而 `.foo` 在
+         *   文件管理器里默认是隐藏文件，用户导入完会发现「什么都没看到」
+         * - 超长就截断，但**尽量留住扩展名**（`foo.csv` 比 `foo` 有用，
+         *   插件可能按扩展名判断格式）
+         * - 实在洗不出东西（空串、全是点）就退回 [FALLBACK_NAME]
+         *
+         * 它**永远返回一个能用的名字**，不返回 null —— 因为调用点没有别的选择：
+         * SAF 给什么就是什么，用户没法「改个名字再导入」。让调用点去处理
+         * 「这个名字不能用」只会让每个调用点各写一遍兜底。
+         */
+        fun cleanName(raw: String): String {
+            val base = raw.substringAfterLast('/').substringAfterLast('\\')
+            val cleaned = base
+                .filterNot { it.isISOControl() || it == '/' || it == '\\' }
+                .trim()
+                .trimStart('.')
+                .let { truncate(it, MAX_NAME_CHARS) }
+                .trim()
+            return cleaned.ifEmpty { FALLBACK_NAME }
+        }
+
+        /** 截断到 [max] 个字符，但尽量留住扩展名。 */
+        private fun truncate(name: String, max: Int): String {
+            if (name.length <= max) return name
+            val dot = name.lastIndexOf('.')
+            // 扩展名超过 10 个字符就不当扩展名看 —— 那多半是名字里本来就有个点，
+            // 硬留会把主干挤掉
+            if (dot > 0 && name.length - dot in 1..11) {
+                return name.take(max - (name.length - dot)) + name.substring(dot)
+            }
+            return name.take(max)
+        }
     }
 }
+
+/**
+ * 工作区里的一个文件。
+ *
+ * [path] 是**相对工作区根**的路径，分隔符一律 `/` —— 和插件在 JS 里看到的
+ * 写法一致，用户可以照着它填工具参数（比如 `csvstat` 的 `path`）。
+ */
+data class WorkspaceFile(val path: String, val bytes: Long)
+
+/**
+ * 工作区用量。
+ *
+ * 字段名不用 `size` / `count` 而用 `bytes` / `entries`，是为了让
+ * 「这是字节数不是文件数」在调用点读得出来 —— 这两个数字长得太像，
+ * 而把 12 当字节、把 12288 当文件数都能编译通过。
+ */
+data class WorkspaceUsage(val entries: Int, val bytes: Long)
 
 /**
  * 工作区操作失败。

@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.runtime.script.ScriptOutcome
 import com.aichat.plugin.runtime.script.ScriptRequest
+import com.aichat.plugin.workspace.PluginWorkspace
 import com.aichat.plugin.workspace.PluginWorkspaces
 import java.io.File
 import java.nio.file.Files
@@ -289,6 +290,38 @@ class SandboxWorkspaceTest {
         )
         assertEquals(ScriptOutcome.Kind.ScriptError, failed.kind)
         outside.delete()
+    }
+
+    // ── 用户导入的文件：方向反过来 ────────────────────────────────────────────
+
+    @Test
+    fun 主进程放进去的文件_插件读得到() {
+        // 这是「导入文件」这个功能的**真正验收点**，而且方向是反的：
+        // 上面那些用例都是沙箱写、沙箱读，这条是**主进程写、沙箱读**。
+        //
+        // 两边算路径的方式必须完全一致（都走 PluginWorkspaces.under），
+        // 否则用户在详情页导入的文件会躺在一个插件永远看不到的地方 ——
+        // 而界面上它会好好地显示在文件列表里，谁也不觉得有问题
+        val id = newId()
+
+        // 走 adminOf，也就是详情页导入文件用的那条路；
+        // 名字也走 cleanName，连「SAF 给的名字很脏」这件事一起验了
+        val name = PluginWorkspace.cleanName("Download/月度报表.csv")
+        workspaces.adminOf(id).writeBytes(name, "城市,销量\n上海,42\n".toByteArray())
+
+        val json = okJson(
+            run(
+                request(
+                    id = id,
+                    source = """
+                        module.exports = { run: function (i, host) {
+                          return { csv: host.fs.readText("$name") };
+                        } };
+                    """.trimIndent(),
+                ),
+            ),
+        )
+        assertTrue(json, json.contains("上海"))
     }
 
     // ── 和权限模型的接缝 ──────────────────────────────────────────────────────

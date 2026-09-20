@@ -1,5 +1,7 @@
 package com.aichat.ui.plugins
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,8 @@ import com.aichat.di.AppContainer
 import com.aichat.ui.common.PbButton
 import com.aichat.ui.common.PbScaffold
 import com.aichat.plugin.manifest.SettingType
+import com.aichat.plugin.workspace.PluginWorkspace
+import com.aichat.ui.common.PbOutlinedButton
 import com.aichat.ui.conversations.formatTime
 
 /**
@@ -70,6 +74,14 @@ fun PluginDetailScreen(
 
     // 插件没了（被卸载、或从安装页跳过来时 id 不对）就返回，不要停在一个空页面上
     LaunchedEffect(state.missing) { if (state.missing) onBack() }
+
+    // 导入文件走 SAF（和安装插件页同一个做法）：Android 10 起拿不到别人的
+    // 绝对路径，而且 SAF 给的是 content URI，用户从哪里选（下载、网盘、
+    // 聊天记录）都行。MIME 不设过滤 —— 工作区可以放任何文件，插件读不读得懂
+    // 是插件的事，宿主没道理在这里替它挑
+    val pickFile = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importFile) }
 
     PbScaffold(title = state.name.ifBlank { "插件" }, onBack = onBack) { topInset ->
         if (state.loading) {
@@ -103,6 +115,17 @@ fun PluginDetailScreen(
             }
 
             PermissionBlock(state.permissions, state.highRisk)
+
+            // 紧跟在权限后面：上面那句「文件：可以读写自己的工作区」说的是
+            // 「能做什么」，这块说的是「它存在这里的东西」—— 因果连着的
+            state.workspace?.let { workspace ->
+                WorkspaceBlock(
+                    state = workspace,
+                    onPick = { pickFile.launch(arrayOf("*/*")) },
+                    onRemove = viewModel::removeFile,
+                )
+            }
+
             ToolBlock(state.tools, isMcp = state.isMcp, hasCache = state.mcp.connected)
 
             if (state.fields.isNotEmpty()) {
@@ -118,7 +141,11 @@ fun PluginDetailScreen(
             }
 
             Spacer(Modifier.height(8.dp))
-            DangerZone(pluginName = state.name, onUninstall = viewModel::uninstall)
+            DangerZone(
+                pluginName = state.name,
+                hasWorkspace = state.workspace != null,
+                onUninstall = viewModel::uninstall,
+            )
         }
     }
 }
@@ -320,6 +347,146 @@ private fun PermissionBlock(permissions: List<String>, highRisk: Boolean) {
     }
 }
 
+/**
+ * 工作区：插件存东西的地方，加上一个「把文件放进去」的入口。
+ *
+ * ## 为什么这块非有不可
+ *
+ * `host.fs` 只给了**插件**读写能力，用户没有任何入口把文件放进去 ——
+ * 于是插件能读到的永远只有它自己写下的东西。示例 `csvstat` 要一份 CSV
+ * 才能干活，没有这块的话它的 `path` 参数就是个死参数（清单里那句
+ * 「工作区通常为空」是当时的诚实说法，有这块之后才不成立）。
+ *
+ * ## 为什么把「用量」摆在文件列表上面
+ *
+ * 工作区有配额（[PluginWorkspace.MAX_TOTAL_BYTES]），而配额本来只在**写失败**
+ * 的时候才会被用户感知到。把「12 KB / 8 MB」放在上面，用户导之前就能
+ * 判断放不放得下，而不是导到一半被告知不行。
+ *
+ * ## 为什么删除要确认
+ *
+ * 删除不可撤销，而误触的代价很具体：刚导入的一份 CSV 没了，得回去找到
+ * 原件再导一次。确认框的文案也要说清「插件下次就看不到它了」——
+ * 用户此刻需要知道的是这一条，而不是一句「已删除」。
+ */
+@Composable
+private fun WorkspaceBlock(
+    state: WorkspaceState,
+    onPick: () -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text("工作区", style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = "这个插件只能在这个目录里存东西，看不到别处。" +
+                    "下面既是它自己留下的，也是你放进来给它的。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = "${state.usage.entries} 个文件 · ${formatBytes(state.usage.bytes)} / " +
+                    formatBytes(PluginWorkspace.MAX_TOTAL_BYTES.toLong()),
+                style = MaterialTheme.typography.labelSmall,
+            )
+
+            val shown = state.files.take(MAX_VISIBLE_FILES)
+            if (shown.isEmpty()) {
+                Text(
+                    text = "还没有文件。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            shown.forEach { file ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        // 路径原样显示（含子目录）—— 用户要照着它填工具参数，
+                        // 比如 csvstat 的 path
+                        Text(file.path, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = formatBytes(file.bytes),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { pendingDelete = file.path }) {
+                        Text("删除", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (state.files.size > shown.size) {
+                // 不静默截断：没列出来的文件也要让用户知道它存在，
+                // 否则他会以为工作区里就这 30 个
+                Text(
+                    text = "还有 ${state.files.size - shown.size} 个文件没有列出来" +
+                        "（工作区最多 ${PluginWorkspace.MAX_ENTRIES} 个）。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            PbOutlinedButton(
+                onClick = onPick,
+                enabled = !state.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (state.busy) "处理中…" else "导入文件…")
+            }
+
+            state.message?.let { message ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (state.failed) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
+            }
+        }
+    }
+
+    pendingDelete?.let { path ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删掉「$path」？") },
+            text = {
+                Text(
+                    "插件下次调用时就看不到它了。如果它是你导入的文件，" +
+                        "本机还留着原件的话可以再导一次。",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        onRemove(path)
+                    },
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** 文件列表最多列几行。超出的折成一句「还有 N 个」。 */
+private const val MAX_VISIBLE_FILES = 30
+
 @Composable
 private fun ToolBlock(tools: List<PluginToolRow>, isMcp: Boolean, hasCache: Boolean) {
     Card(
@@ -499,12 +666,22 @@ private fun TextField(
  * 点一次就执行的话，一次误触就能把它变成事实，那句话就成了一句装饰。
  * 而且这里删掉的不只是插件：用户手填的密钥会一起没，只能重装重填。
  *
+ * ## 为什么要说清「工作区里的文件」
+ *
+ * `PluginRepository.uninstall` 会连工作区目录一起删（那是刻意的：用户决定
+ * 卸载了，插件留下的东西就该清干净）。但工作区里可能有**用户自己导入的文件** ——
+ * 那些不是插件产生的，用户未必想到它们会跟着走。文案不写这一句的话，
+ * 「这一步不能撤销」就少说了一半。
+ *
+ * [hasWorkspace] 为 false 时不提工作区：没有那个目录的插件，
+ * 说一句关于工作区的话只会让人去找它。
+ *
  * 确认框里把插件名写出来。泛泛的「确定要卸载吗」在列表页可能还有歧义，
  * 这里虽然是从详情页进来的、名字就在上面，但把名字写进问句成本几乎为零，
  * 而误删一个已经配好的插件成本很高。
  */
 @Composable
-private fun DangerZone(pluginName: String, onUninstall: () -> Unit) {
+private fun DangerZone(pluginName: String, hasWorkspace: Boolean, onUninstall: () -> Unit) {
     var confirming by remember { mutableStateOf(false) }
 
     Card(
@@ -514,7 +691,9 @@ private fun DangerZone(pluginName: String, onUninstall: () -> Unit) {
         Column(Modifier.padding(12.dp)) {
             Text("卸载", style = MaterialTheme.typography.titleSmall)
             Text(
-                text = "卸载会删掉这个插件的配置，包括你填过的密钥。这一步不能撤销。",
+                text = "卸载会删掉这个插件的配置，包括你填过的密钥" +
+                    (if (hasWorkspace) "，以及工作区里的文件" else "") +
+                    "。这一步不能撤销。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -531,8 +710,9 @@ private fun DangerZone(pluginName: String, onUninstall: () -> Unit) {
             text = {
                 Text(
                     "它会从工具列表里消失，模型不能再调用它。" +
-                        "你填过的配置和密钥会一起删掉，而且不能撤销 —— " +
-                        "要恢复只能重新装一遍、重新填。",
+                        "你填过的配置和密钥会一起删掉" +
+                        (if (hasWorkspace) "，工作区里的文件也会（包括你自己导入的那些）" else "") +
+                        "，而且不能撤销 —— 要恢复只能重新装一遍、重新填。",
                 )
             },
             confirmButton = {
