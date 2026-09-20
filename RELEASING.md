@@ -399,6 +399,23 @@ GH_TOKEN="$TOKEN" "$GH" release edit v1.0 --repo jiunian503/Patchbay --notes-fil
 
 ⚠️ `dist/` 不入库（45 MB）但**必须上传** —— 归档目录丢了，那一版的线上崩溃就永远读不懂了。
 
+### 8.5 顺手核一遍仓库的对外属性
+
+发完版多花两秒 —— 这几个字段和 README 一样**会过期，而且过期时没有任何测试会红**：
+
+```bash
+GH_TOKEN="$TOKEN" "$GH" api repos/jiunian503/Patchbay \
+  --jq '{visibility, license:(.license.spdx_id // "null"), description, topics}'
+```
+
+期望：`visibility:"public"`（**私有的话「检查更新」对所有人失效**，见上面那条警告）·
+`license:"NOASSERTION"`（**不是 `null`** —— `null` 是「根本没有 LICENSE 文件」，
+而这里有那个自定义的「保留所有权利」LICENSE，licensee 认不出它属于哪个标准许可证；
+`NOASSERTION` 才是想要的）· `description` 与 `topics` 非空。
+
+> ⚠️ **别把 `NOASSERTION` 和 `null` 混成一句「反正不是标准许可证」** ——
+> `--jq` 里的 `//` 只兜 `null`，兜不住 `NOASSERTION`。判据见 SKILL.md **§91⑨**。
+
 ### 9. 用户发来一条混淆堆栈时
 
 ```bash
