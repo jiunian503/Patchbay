@@ -281,6 +281,51 @@ class ManifestModelTest {
     }
 
     /**
+     * 枚举节点的 `default`（如果有）必须是它自己 `enum` 里的一个值。
+     *
+     * ## 守的是同一处改动里**最容易漏的那一半**
+     *
+     * §79 三 把 `ScriptRuntimeKind` 从 `Node` 换成 `QuickJs` 时，schema 里要改的是
+     * `enum` **和** `default` 两处。只改 `enum` 的话，schema 会变成自相矛盾的 ——
+     * 声明 `enum: ["quickjs"]` 而 `default: "node"`，一个不在取值范围内的默认值。
+     *
+     * 而它**不会以任何形式报错**：`default` 只是给作者看的文档，宿主根本不读它
+     * （Kotlin 侧的默认值来自属性声明本身）。所以它坏了就是文档坏了，谁也发现不了 ——
+     * 直到有作者照着那个 `default` 写了个 `node`，然后被宿主一句「解析失败」打回。
+     *
+     * ## 这条和上面那条是互补的
+     *
+     * 上面那条守「Kotlin 枚举 ↔ schema 的 `enum`」，这条守「schema 自己的
+     * `enum` ↔ `default`」。两条一起，才把「改一个枚举要动四处」里的前两处封住
+     * （剩下两处是 Kotlin 属性的默认值和示例清单，仍然靠人）。
+     */
+    @Test
+    fun `枚举节点的 default 必须在 enum 里`() {
+        val schema = readSchema()
+
+        val bad = enumPaths(schema).mapNotNull { path ->
+            val node = navigate(schema, path)
+            val allowed = node["enum"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
+            // 不用 `jsonPrimitive`（它在值不是基本类型时会抛）——
+            // 这里只是「顺便看看有没有 default」，没有就不管
+            val default = (node["default"] as? JsonPrimitive)?.content
+            if (default != null && default !in allowed) {
+                "$path：default 是 `$default`，但 enum 只允许 $allowed"
+            } else {
+                null
+            }
+        }
+
+        assertEquals(
+            "schema 里有枚举节点的 default 不在自己的取值范围内 —— 这份 schema 自相矛盾，" +
+                "而 `default` 只是给作者看的文档（宿主不读它，Kotlin 侧的默认值来自属性声明），" +
+                "所以它坏了不会有任何东西报错：",
+            emptyList<String>(),
+            bad,
+        )
+    }
+
+    /**
      * schema 里每个对象节点都必须是**封闭**的（`additionalProperties: false`）。
      *
      * ## 为什么这条是必须的

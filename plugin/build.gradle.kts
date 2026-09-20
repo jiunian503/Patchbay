@@ -64,6 +64,15 @@ tasks.test {
     // （:app 那边的 assets / examples 也是这么传的，见 app/build.gradle.kts）
     systemProperty("patchbay.schemaFile", "$projectDir/manifest.schema.json")
 
+    // 作者参考版示例的路径。它就在**本模块自己的目录**下（`plugin/examples/`），
+    // 所以这里不用去问 rootProject —— 少一处跨模块的路径假设。
+    //
+    // 为什么要让 :plugin 也知道它：那几份清单是**插件协议的参考实现**，
+    // 而 `plugin/examples/csvstat`（唯一的 script 示例）**故意不随包发**
+    // （它的运行时还没实现），于是 :app 那边遍历 assets 的测试根本看不到它。
+    // 结果是：协议里 `script` 这一支的示例从来没被解析过，改错了没人知道。
+    systemProperty("patchbay.examplesDir", "$projectDir/examples")
+
     // **把 schema 声明成测试任务的输入。**
     //
     // 这条不能省：Gradle 只看测试任务的声明输入（源码、classpath），
@@ -74,5 +83,11 @@ tasks.test {
     // RELATIVE 而不是默认的 ABSOLUTE：换机器、换 checkout 目录不该触发重跑，
     // 文件内容变了才该。
     inputs.file("$projectDir/manifest.schema.json")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // 示例目录同理，而且这里**更容易**踩 UP-TO-DATE：示例是 JSON 数据，
+    // 改它不会动任何源码。不声明的话，「示例清单被改坏了」会以「测试通过」
+    // 的形式安静地失效 —— 和上面 schema 那条是同一个坑（§38）。
+    inputs.dir("$projectDir/examples")
         .withPathSensitivity(PathSensitivity.RELATIVE)
 }
