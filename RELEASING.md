@@ -28,6 +28,9 @@ keytool -genkeypair -v -keystore patchbay-release.jks \
 > 不加 `-dname` 的话它会连着问 7 个问题（姓名 / 组织 / 城市 / 省 / 国家代码），
 > 而且最后的确认提示是中文 `[否]:` —— 输 `y` 不认，会绕回第一个问题。别走那条路。
 
+> ⚠️ **这条命令会覆盖已有的密钥库。** 先 `ls patchbay-release.jks` 看一眼 ——
+> 已经有了就**别重复跑**，重跑等于换签名（老用户装不上新版）。
+
 ⚠️ **这一步只做一次，做完立刻备份。**
 
 Android 只认一个签名 —— **密钥丢了，所有老用户只能卸载重装**（不是「更新」）。
@@ -130,12 +133,23 @@ python tools/archive_release.py                # 验过了再归档
 
 ### 8. 上传到 GitHub Release 附件
 
-**这一步目前是手工的**（本机没装 `gh` CLI）。先建远程仓库 —— 现在还没有：
+**这一步目前是手工的**（本机没装 `gh` CLI）。
+
+`origin` 已经配好了（`https://github.com/jiunian503/patchbay.git`），但**仓库还没建**。
+到 GitHub 上新建一个仓库，然后：
 
 ```bash
-git remote add origin https://github.com/jiunian503/patchbay.git
 git push -u origin master
 ```
+
+⚠️ **建仓库时别勾任何初始化文件**（README / .gitignore / LICENSE）—— 保持**空仓库**。
+勾了的话 GitHub 会先生成一个 commit，首次 push 会被拒：
+
+```
+! [rejected]  master -> master (fetch first)
+```
+
+那时候得先 `git pull --rebase origin master` 再 push。**不如一开始就别勾。**
 
 用 **HTTPS 而不是 SSH**：这台机器 `~/.ssh/` 下只有 `known_hosts`、**没有密钥**，
 `git@github.com:...` 会直接报 `Permission denied (publickey)`。
