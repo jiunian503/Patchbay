@@ -85,12 +85,18 @@ C:\Users\nian\Downloads\Patchbay-发布密钥备份\
 >    能列出别名为 `patchbay` 的证书
 > 3. **指纹对得上线上**：`keytool` 报的证书 SHA-256，等于
 >    `apksigner verify --print-certs <已发布的 apk>` 报的那个 —— 说明备的就是
->    签过 v1.0 / v1.1 的那把钥匙
+>    **签过所有已发布版本**的那把钥匙。
+>    **别在这里列版本号**（原来写的是「签过 v1.0 / v1.1 的那把钥匙」，而这句话
+>    每发一版就少一分对 —— 和 `README.txt` 里写死哈希是同一个毛病，§91⑧）。
+>    现在发到 `v1.2` 了，判据是把指纹对**任意一版**线上 APK：
+>    `d14dd5a010143d84d0cb243485198e302db18b8b55430d370a5ee5e7b3e94b2d`。
+>    **这个值是密钥的属性、不随发版变** —— 所以它可以写死，版本号不行。
 >
 > 想再硬一点就真签一次（**在 APK 的副本上**，别动原件）：
 >
 > ```bash
-> cp dist/patchbay-1.1/patchbay-1.1.apk /tmp/t.apk
+> # 用任意一版已归档的 APK 都行；下面是当时最新的那版
+> cp dist/patchbay-1.2/patchbay-1.2.apk /tmp/t.apk
 > "$ANDROID_HOME/build-tools/36.1.0/apksigner.bat" sign \
 >   --ks <备份的.jks> --ks-pass pass:<口令> --ks-key-alias patchbay --key-pass pass:<口令> /tmp/t.apk
 > ```
@@ -187,6 +193,11 @@ python tools/elf_align.py app/build/outputs/apk/release/app-release.apk
 
 > 归档脚本读不出这两个值会**直接停下** —— 不会给你一个叫 `patchbay-unknown` 的目录。
 
+> ⚠️ **别靠体积认版本。** 版本串位数相同时，两版的 APK 大小会非常接近 ——
+> v1.2 是 `5,324,829` B，v1.1 是 `5,308,445` B，**只差 16 KB（0.3%）**，扫一眼
+> 会以为「一样」。判定一律用 `aapt2 dump badging` 直接读
+> `versionCode` / `versionName`（见第 6 步）。判据见 SKILL.md **§92 十五⑤**。
+
 ### 6. 构建 + 两条验收
 
 ```bash
@@ -204,24 +215,55 @@ $G :app:assembleRelease --max-workers=2 --no-configuration-cache
 > 全新安装**验不到**升级路径上的东西（Room 迁移、密钥解密、插件数据、ABI 变化），
 > 而真实用户大多是从上一版升上来的 —— 所以两条都要跑。
 >
+> **顺序上：两条不能在同一个安装上连着跑**（覆盖升级那条要先有一个旧版本在机器上）。
+> 但先跑哪个都行 —— 只要每次从对的状态起步：`uninstall` → 装旧版 → 造数据 → `install -r`。
+>
 > 两条都验完**都要 `uninstall`**，否则会挡住后面所有 debug 安装。
+> 顺手把 `adb reverse --remove-all` 也清掉。
 >
 > **另外，release 上要单独走一遍「设置 → 关于 → 检查更新」** —— 它打网络 + 走
 > `kotlinx.serialization`，而 R8 要是把 `@SerialName` 剥掉，字段名会退回 Kotlin
 > 属性名、`tag_name` 匹配不上，界面说「看不懂对方返回的内容」。**这个失败只在
 > release 上出现，debug 包永远绿**（debug 不混淆）。判据见 SKILL.md **§92 第十一节**。
+>
+> **而且这一条只要说「已是最新」就够了，不必等到弹框。** `ReleaseDto` 的两个字段是
+> **可空带默认值**的 ⇒ `@SerialName` 被剥掉**不抛异常**，而是字段留空 ⇒ 返回
+> `Malformed`；而 `UpToDate` **只能**由 `Found` 产生。所以「已是最新」这一句同时证明
+> 两个 `@SerialName` 都活着（外加 HTTPS 通了、版本比较对）。判据见 **§92 十五①**。
+>
+> ⚠️ **想用旧版去看「有新版本」的对话框时注意**：`检查更新` 是 v1.2 才有的，
+> **v1.1 的设置页滚到底只有「服务商」一节、根本没有「关于」**。所以「装回上一版去
+> 看对话框」这条路，在**第一个带这个功能的版本**上是走不通的 ——
+> 只有等到 v1.3 才成立。别把「旧版找不到入口」误读成功能坏了。
+>
+> 全新安装那条要**真的滚到底看一眼设置页有几节** —— 「升级后会多出一节」也是判据。
 
 ### 7. 归档 APK + mapping
 
 **先提交版本号那处改动**，再归档：
 
 ```bash
-git add app/build.gradle.kts && git commit -m "v1.1：versionCode 2 / versionName 1.1"
+git add app/build.gradle.kts && git commit -F - <<'EOF'
+发版 1.2：versionCode 2 -> 3
+
+<这里写这一版的增量、要发的字节（大小 + sha256）、以及三条验收的结果>
+EOF
 ```
+
+> ⚠️ **提交信息里有反引号 / `$` 就别用 `-m`。** 用 `-m "…` 包着 `@SerialName` 这种
+> 带反引号的内容时，bash 会报 `unexpected EOF while looking for matching \``，
+> 而且**这条命令里在它前面写好的东西也一起不执行** —— 而下一步看起来是正常的
+> （提交成功），直到归档 `README.txt` 写出「有未提交改动」才发现。
+> 用 `git commit -F - <<'EOF'` 时，**`'EOF'` 的引号不能省**，否则 `$` 和反引号
+> 照样会被展开。判据见 SKILL.md **§92 十五⑦**。
 
 > 归档脚本会把 `git rev-parse --short HEAD` 和「工作区干不干净」写进 `README.txt`。
 > 没提交就归档，README 里记的是**上一个** commit，后面还跟着一句
 > 「⚠️ 有未提交改动」—— 而这一版发出去的到底是哪份源码，就说不清了。
+>
+> **归档前把临时文件清掉**（真机上 `screencap` 拉回来的截图会让 `git status` 不干净）。
+> 忘了也不要紧：清完再 `python tools/archive_release.py --force` 重跑一次即可 ——
+> `--force` 覆盖同目录，**APK 字节不变**（`cmp` 可证）。
 
 然后：
 
@@ -273,14 +315,40 @@ git push
 GH="/c/Program Files/GitHub CLI/gh.exe"
 TOKEN=$(printf "protocol=https\nhost=github.com\n\n" | git credential fill | sed -n 's/^password=//p')
 
-GH_TOKEN="$TOKEN" "$GH" release create v1.1 \
+# 把三处 1.2 换成你要发的版本（示例给的是当前最新那版）
+GH_TOKEN="$TOKEN" "$GH" release create v1.2 \
   --repo jiunian503/Patchbay \
-  --title "Patchbay 1.1" \
-  --notes-file dist/patchbay-1.1/NOTES.md \
+  --title "Patchbay 1.2" \
+  --notes-file dist/patchbay-1.2/NOTES.md \
   --target master \
-  dist/patchbay-1.1/patchbay-1.1.apk \
-  dist/patchbay-1.1/mapping.txt
+  dist/patchbay-1.2/patchbay-1.2.apk \
+  dist/patchbay-1.2/mapping.txt
 ```
+
+> ⚠️ **建完要当场复核两下**，别只看 `release create` 的退出码 —— 它成功 ≠ App 查得到：
+>
+> ```bash
+> # ① 附件与属性：期望 draft:false、prerelease:false，两个附件都 state:"uploaded"
+> GH_TOKEN="$TOKEN" "$GH" release view v1.2 --repo jiunian503/Patchbay \
+>   --json isDraft,isPrerelease,assets \
+>   --jq '{draft:.isDraft, pre:.isPrerelease, assets:[.assets[]|{name,size,state}]}'
+>
+> # ② 端点指向谁（App 打的就是这个）
+> curl -s -H "Accept: application/vnd.github+json" -H "User-Agent: Patchbay-UpdateCheck" \
+>   https://api.github.com/repos/jiunian503/Patchbay/releases/latest \
+>   | python -c "import sys,json;d=json.load(sys.stdin);print(d['tag_name'],d['prerelease'],d['draft'])"
+> ```
+>
+> **③ 再把附件拉回来对 sha256** —— 这是「用户下到的 == 真机上装过的那份」唯一的证据。
+> **只核附件大小不够**（两个 5,324,829 B 的包完全可能内容不同）：
+>
+> ```bash
+> curl -sL -o /tmp/dl.apk \
+>   https://github.com/jiunian503/Patchbay/releases/download/v1.2/patchbay-1.2.apk
+> sha256sum /tmp/dl.apk    # 必须等于归档 README.txt 里那个
+> ```
+>
+> 判据见 SKILL.md **§92 十五③④**。
 
 > ⚠️ **别加 `--prerelease`，也别用 `--draft`。** 上面这条命令创建出来的是
 > 「最新发布」，而 App 里的「检查更新」打的是 `/releases/latest` ——
