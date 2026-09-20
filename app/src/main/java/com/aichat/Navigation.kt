@@ -170,6 +170,11 @@ fun MainNavigation(container: AppContainer) {
                         },
                         onOpenSearch = { backStack.add(ConversationSearch) },
                         onOpenSettings = { backStack.add(ProviderList) },
+                        // 首屏那条「还没有可用的服务商」提示条直接进编辑页，
+                        // 而不是先到设置页 —— 理由见 SetupHint 的 KDoc
+                        onOpenProviderEdit = { providerId ->
+                            backStack.add(ProviderEdit(providerId))
+                        },
                     )
                 }
 

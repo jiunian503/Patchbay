@@ -129,6 +129,13 @@ fun ChatScreen(
      */
     onOpenDrawer: (() -> Unit)?,
     onOpenSettings: () -> Unit,
+    /**
+     * 打开服务商编辑页；`null` 表示新增一个。
+     *
+     * 首屏那条引导提示条走的是这条路，而不是 [onOpenSettings] ——
+     * 理由写在 [SetupHint] 的 KDoc 里。
+     */
+    onOpenProviderEdit: (String?) -> Unit,
     /** 从搜索结果点进来时，要定位到的那条消息。普通打开会话是 null。 */
     highlightMessageId: Long? = null,
     /**
@@ -171,6 +178,12 @@ fun ChatScreen(
             onPick = { providerId ->
                 pickingProvider = false
                 viewModel.repin(providerId)
+            },
+            // 一个都没配时，这个弹窗里原先只有「取消」—— 它让用户去「设置」加一个，
+            // 却不给出口。这里直接接到新增页。
+            onAddProvider = {
+                pickingProvider = false
+                onOpenProviderEdit(null)
             },
             onDismiss = { pickingProvider = false },
         )
@@ -394,7 +407,13 @@ fun ChatScreen(
                 }
 
                 if (state.needsProvider) {
-                    SetupHint(onOpenSettings = onOpenSettings)
+                    // providerId 一起带下去：它是不是 null 决定这条提示条在讲哪件事
+                    //（一个服务商都没有 vs 有服务商但没填 Key），也决定按钮把人
+                    // 送到「新增」还是「编辑那一份」。
+                    SetupHint(
+                        providerId = state.providerId,
+                        onOpenProvider = onOpenProviderEdit,
+                    )
                 }
 
                 InputBar(
@@ -1233,23 +1252,69 @@ private fun ErrorBanner(message: String, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * 「还不能用」的引导条。
+ *
+ * ## 它现在讲两件事，而不是一件
+ *
+ * `needsProvider` 有两种来源（`ChatViewModel.providerOrExplain` 与 `reload`）：
+ *
+ * 1. **一个服务商都没有** —— 用户刚装上，什么都没配。
+ * 2. **有服务商，但它没填 API Key** —— 换过机器、或者在编辑页把 Key 删了。
+ *
+ * 原来两种情况共用一句「还没有可用的服务商」。第 2 种情况下这句话是**错的** ——
+ * 服务商明明在列表里躺着，只是缺一把 Key。用户照着这句话去「找一个服务商」，
+ * 找不到就会以为 App 坏了。
+ *
+ * 两种情况的按钮落点也不同：第 1 种是「新增」，第 2 种是「编辑那一份」。
+ * 而 `providerId` 恰好就是这两者的判别式（`providerForConversation` 返回 null 时
+ * 它才是 null），所以不必再往 state 里加字段。
+ *
+ * ## 为什么按钮不叫「去设置」
+ *
+ * 原来它叫「去设置」，落点是设置页。但设置页是个 hub：**服务商在最后一节**，
+ * 前面隔着「记忆」和「集成」两块（那两块的位置是四十轮有意定的，见
+ * `ProviderListScreen` 的 KDoc）。于是新用户点完「去设置」，第一屏看不到任何跟
+ * 服务商有关的东西，得先往下滚 —— 而他要做的本来只有这一件事。
+ *
+ * 现在直接进编辑页，文案也换成跟落点对得上的动词短语。
+ *
+ * ## 这个落点依赖「返回刷新」
+ *
+ * 编辑页保存后 `onBack()` 回到对话页，`LifecycleEventEffect(ON_RESUME)` 触发
+ * `reload()`，那里重算 `needsProvider` —— 所以保存成功之后这条会自己消失。
+ * 若哪天把那个 effect 去掉，这里就变成一条**永远消不掉的横幅**。
+ */
 @Composable
-private fun SetupHint(onOpenSettings: () -> Unit) {
+private fun SetupHint(
+    /** 一个服务商都没有时是 null；有服务商但缺 Key 时是那一个的 id。 */
+    providerId: String?,
+    onOpenProvider: (String?) -> Unit,
+) {
+    val noneAtAll = providerId == null
     Surface(color = MaterialTheme.colorScheme.tertiaryContainer) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             Text(
-                text = "还没有可用的服务商",
+                text = if (noneAtAll) "还没有可用的服务商" else "这个服务商还缺 API Key",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Text(
-                text = "填一个 OpenAI 兼容的接口地址和你的 API Key 就能开始。" +
-                    "Key 只存在这台设备上，不会经过任何服务器。",
+                text =
+                    if (noneAtAll) {
+                        "填一个 OpenAI 兼容的接口地址和你的 API Key 就能开始。" +
+                            "Key 只存在这台设备上，不会经过任何服务器。"
+                    } else {
+                        "没有 Key 就发不出请求。Key 只存在这台设备上，" +
+                            "不会经过任何服务器。"
+                    },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Spacer(Modifier.height(6.dp))
-            PbTonalButton(onClick = onOpenSettings) { Text("去设置") }
+            PbTonalButton(onClick = { onOpenProvider(providerId) }) {
+                Text(if (noneAtAll) "添加服务商" else "去填 API Key")
+            }
         }
     }
 }
@@ -1263,14 +1328,23 @@ private fun SetupHint(onOpenSettings: () -> Unit) {
  *
  * [choices] 为 null 表示还没读出来，空列表表示确实一个都没配 ——
  * 这两种状态在界面上是两句话，不能混。
+ *
+ * ## 空列表时按钮要跟着换
+ *
+ * 原来这个弹窗的按钮**恒为「取消」**：正文写着「去「设置」加一个」，
+ * 而唯一的出路是把弹窗关掉、自己去找设置入口 —— 指了个方向却不给出口。
+ * 现在空列表时主按钮直接变成「添加服务商」，跟正文说的是同一件事。
+ * 有服务商可选时按钮仍是「取消」，那时候「取消」才是用户真要的那个。
  */
 @Composable
 private fun ProviderPickerDialog(
     choices: List<ProviderChoice>?,
     currentId: String?,
     onPick: (String) -> Unit,
+    onAddProvider: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val noneAtAll = choices != null && choices.isEmpty()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("这个会话用哪个服务商") },
@@ -1278,8 +1352,8 @@ private fun ProviderPickerDialog(
             when {
                 choices == null -> Text("正在读取…")
 
-                choices.isEmpty() -> Text(
-                    "还没有配置服务商。去「设置」加一个，填上接口地址和 API Key。"
+                noneAtAll -> Text(
+                    "还没有配置服务商。填一个 OpenAI 兼容的接口地址和你的 API Key 就能开始。"
                 )
 
                 else -> Column {
@@ -1299,7 +1373,13 @@ private fun ProviderPickerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            if (noneAtAll) {
+                TextButton(onClick = onAddProvider) { Text("添加服务商") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        },
     )
 }
 

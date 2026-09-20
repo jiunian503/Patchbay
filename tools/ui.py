@@ -16,6 +16,12 @@
     python tools/ui.py tap 新建对话       # 找到并点击（等价于 find + input tap）
     python tools/ui.py tapx 79 1593      # 已知坐标直接点，不跑 uiautomator
 
+多开模拟器时**必须**指定设备，否则会点到另一台上（不报错，输出看着正常）：
+
+    ADB_DEVICE=127.0.0.1:16576 python tools/ui.py dump
+
+（端口算法 `adb_port = 16384 + 32 × index` 见 SKILL.md §74。）
+
 `dump` 会覆盖 /sdcard/dump.xml。注意：**uiautomator dump 可能触发 Activity 重建**，
 如果应用的导航状态没做 rememberSaveable，栈会回到首页。所以别做
 「tap → dump → tap」连招；每一步之间都重新 dump 一次再定位。
@@ -50,12 +56,23 @@
    不区分的话，「点了没反应」很容易被误判成「坐标算错了」。
 """
 
+import os
 import re
 import subprocess
 import sys
 
 ADB = r"C:/Users/nian/Android/Sdk/platform-tools/adb.exe"
-DEVICE = "127.0.0.1:7555"
+
+# 哪一台设备，用 ADB_DEVICE 覆盖：
+#
+#     ADB_DEVICE=127.0.0.1:16576 python tools/ui.py dump
+#
+# 原来这里是写死的 127.0.0.1:7555。多开模拟器之后这条就成了硬伤 ——
+# MuMu 的 adb_port = 16384 + 32 × index（见 SKILL.md §74），
+# 于是「我要操作哪一台」不再是个常量，而是每次调用都要选的东西。
+# 写死的后果不是报错，是**点在了另一台设备上**（那台可能是 Boss 自己在用的），
+# 而且输出看着完全正常。
+DEVICE = os.environ.get("ADB_DEVICE", "127.0.0.1:7555")
 REMOTE = "/sdcard/dump.xml"
 
 

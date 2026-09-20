@@ -73,6 +73,7 @@ fun ChatScaffold(
     onNewConversation: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenProviderEdit: (String?) -> Unit,
     highlightMessageId: Long? = null,
     highlightQuery: String? = null,
 ) {
@@ -161,6 +162,7 @@ fun ChatScaffold(
                 onBack = onBack,
                 onOpenDrawer = openDrawer,
                 onOpenSettings = onOpenSettings,
+                onOpenProviderEdit = onOpenProviderEdit,
                 highlightMessageId = highlightMessageId,
                 highlightQuery = highlightQuery,
             )
