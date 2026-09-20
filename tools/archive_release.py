@@ -7,6 +7,8 @@
     python tools/archive_release.py --find-map-id <64 位 hash>
                                                      # 反查：这条堆栈属于哪一版
 
+    python tools/tests/test_archive_release.py       # 本脚本自己的判据测试（零依赖）
+
 ## 为什么要有这个脚本
 
 混淆后的崩溃堆栈只有配对的 `mapping.txt` 能还原（§73），而 mapping
@@ -120,12 +122,26 @@ def verify(apk: Path, mapping: Path) -> str:
     return apk_id
 
 
-def gradle_version() -> tuple[str, str]:
-    """从 app/build.gradle.kts 读 versionCode / versionName。"""
-    text = GRADLE_FILE.read_text(encoding="utf-8")
+def gradle_version(gradle_file: Path = GRADLE_FILE) -> tuple[str, str]:
+    """从 app/build.gradle.kts 读 versionCode / versionName。
+
+    读不到就**停**，不静默退回占位值。退化的后果是归档目录叫 `patchbay-unknown`、
+    README 里写着「版本 unknown (0)」—— 而归档的全部意义是「半年后还能查」，
+    到那时候没人会去核对一个目录名是不是写错了。§79 的老教训：静默降级比报错危险。
+    """
+    text = gradle_file.read_text(encoding="utf-8")
     code = re.search(r"^\s*versionCode\s*=\s*(\d+)", text, re.MULTILINE)
     name = re.search(r'^\s*versionName\s*=\s*"([^"]+)"', text, re.MULTILINE)
-    return (code.group(1) if code else "0", name.group(1) if name else "unknown")
+    if code is None or name is None:
+        missing = [k for k, m in (("versionCode", code), ("versionName", name)) if m is None]
+        fail(
+            f"从 {gradle_file.name} 里读不出 {' / '.join(missing)} —— 归档目录名会退化成"
+            "占位值，所以这里直接停。\n"
+            "  多半是写法变了（比如换成了版本目录变量）。当前用的正则是：\n"
+            r"    versionCode  ^\s*versionCode\s*=\s*(\d+)" + "\n"
+            r'    versionName  ^\s*versionName\s*=\s*"([^"]+)"'
+        )
+    return (code.group(1), name.group(1))
 
 
 def git_state() -> tuple[str, bool]:
