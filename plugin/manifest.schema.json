@@ -48,7 +48,7 @@
         "mcp",
         "native"
       ],
-      "description": "declarative=纯 HTTP 声明；script=内置 Node 解释纯 JS；mcp=接入 MCP 生态；native=随 APK 打包的二进制"
+      "description": "declarative=纯 HTTP 声明；script=内置 QuickJS 跑纯 JS（沙箱内没有 IO，要联网只能调 host.http）；mcp=接入 MCP 生态；native=随 APK 打包的二进制"
     },
     "permissions": {
       "$ref": "#/$defs/permissions"
