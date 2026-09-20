@@ -206,15 +206,18 @@ object PluginHost {
         // 顺序要紧：**先看引擎，再看文件**。反过来的话，宿主没装引擎时用户看到的
         // 会是「入口文件读不到」—— 而真实原因是这个宿主压根没有脚本运行时，
         // 两者的出路完全不同（一个让他去查文件，一个让他等宿主升级）。
-        if (!scripts.available) {
+        //
+        // 那句话**由宿主给**（[ScriptRuntime.unavailableReason]），这里不写死：
+        // 「宿主没有引擎」和「这台设备跑不了引擎」的出路不一样，只有宿主知道是哪种。
+        val noEngine = scripts.unavailableReason
+        if (noEngine != null) {
             return PluginTools(
                 plugin = plugin,
                 tools = emptyList(),
                 problems = listOf(
                     ManifestProblem(
                         "$.runtime",
-                        "当前版本的宿主还不支持 script 运行形态，这个插件暂时不会提供任何工具。" +
-                            "它的清单是合法的，等宿主支持后可以直接用。",
+                        noEngine,
                         severity = ManifestProblem.Severity.Warning,
                     ),
                 ),

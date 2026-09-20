@@ -179,7 +179,14 @@ class ScriptHostTest {
         //
         // 两个毛病同时存在时报哪一条，就是这条用例要钉的东西
         val broken = Manifests.raw(Manifests.scriptObject(files = emptyMap()))
-        val set = PluginHost.tools(broken, client, FakeScriptRuntime(available = false))
+        val set = PluginHost.tools(
+            broken,
+            client,
+            FakeScriptRuntime(
+                unavailableReason =
+                    "当前版本的宿主还不支持 script 运行形态，这个插件暂时不会提供任何工具。",
+            ),
+        )
 
         assertTrue(set.tools.isEmpty())
         val problem = set.problems.single()
@@ -190,6 +197,22 @@ class ScriptHostTest {
             ManifestProblem.Severity.Warning,
             problem.severity,
         )
+    }
+
+    @Test
+    fun `宿主给的原因原样进那条警告_装配层不自己编一句`() {
+        // 「跑不了」有两种，而出路不一样：宿主没有引擎（等升级）与这台设备跑不了引擎
+        // （换设备，或者换插件形态）。装配层只知道「不能跑」，所以那句话必须由宿主给 ——
+        // 这条用例钉的就是**它一个字都没被改过**：改过就说明这里又编了一句，
+        // 而那句「编的」只可能是前者，于是 16 KB 内存页的设备会读到「等宿主升级」
+        val reason = "这台设备的内存页是 16 KB，引擎的原生库加载会崩，宿主关掉了脚本运行时。"
+        val set = tools(Manifests.script(), FakeScriptRuntime(unavailableReason = reason))
+
+        assertTrue(set.tools.isEmpty())
+        val problem = set.problems.single()
+        assertEquals("$.runtime", problem.path)
+        assertEquals(reason, problem.message)
+        assertEquals(ManifestProblem.Severity.Warning, problem.severity)
     }
 
     @Test

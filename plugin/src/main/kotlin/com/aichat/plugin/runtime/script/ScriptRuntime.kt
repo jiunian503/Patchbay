@@ -32,8 +32,29 @@ import kotlinx.serialization.Serializable
  */
 interface ScriptRuntime {
 
-    /** 这个宿主能不能跑脚本。false 时 [execute] 一律返回 [ScriptOutcome.Kind.Unavailable]。 */
-    val available: Boolean
+    /**
+     * [available] 为 false 时，**为什么** —— 一段**给用户看**的话。
+     *
+     * ## 为什么这句话必须由宿主给，而不是在 `PluginHost` 里写死
+     *
+     * 因为「跑不了」有两种，而**出路不一样**：
+     *
+     *  - **宿主没有引擎**（`:plugin` 侧的默认值 [Unavailable]）：等宿主升级，插件本身没毛病
+     *  - **这台设备跑不了引擎**（`:app` 侧的实现：QuickJS 的原生库只按 4 KB 内存页对齐，
+     *    16 KB 页的设备上加载它会崩）：**等升级没有用** —— 要么换设备，要么换插件形态
+     *
+     * 装配层能写死的只有前者，于是后者会读到一句「等宿主支持后可以直接用」，
+     * 而那个「以后」不会来。这是 §47 那条老规矩的另一面：**报出来还不够，要报对**。
+     */
+    val unavailableReason: String?
+
+    /**
+     * 这个宿主能不能跑脚本。false 时 [execute] 一律返回 [ScriptOutcome.Kind.Unavailable]。
+     *
+     * **由 [unavailableReason] 算出来的，不是第二个字段** —— 两个独立字段迟早会出现
+     * 「说能跑，同时又带着一句为什么不能跑」，而那种状态没有任何调用方知道该怎么办。
+     */
+    val available: Boolean get() = unavailableReason == null
 
     /**
      * 跑一次工具调用。
@@ -66,9 +87,14 @@ interface ScriptRuntime {
          * 宿主没装脚本运行时。默认值 —— 现有装配调用点因此不用改，
          * 而且「没接引擎」时用户看到的仍是明确的「宿主还不支持」，
          * 不是静默的空工具列表（§47 的老规矩）。
+         *
+         * 那句「宿主还不支持」现在就写在下面这个 [unavailableReason] 里，
+         * 由 `PluginHost` **原样**放进插件详情页的那条警告 —— 它不再自己编一句话。
          */
         val Unavailable: ScriptRuntime = object : ScriptRuntime {
-            override val available: Boolean = false
+            override val unavailableReason: String =
+                "当前版本的宿主还不支持 script 运行形态，这个插件暂时不会提供任何工具。" +
+                    "它的清单是合法的，等宿主支持后可以直接用。"
 
             override suspend fun execute(request: ScriptRequest): ScriptOutcome =
                 ScriptOutcome.Failed(

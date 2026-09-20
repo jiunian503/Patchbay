@@ -53,12 +53,12 @@ class QuickJsSandboxRuntime(
 ) : ScriptRuntime {
 
     /**
-     * 这个宿主能不能跑脚本。
+     * 这台设备能不能跑脚本。`null` 表示能。
      *
      * ## 为什么用「页大小」判断，而不是试着加载一次原生库
      *
      * 已知的加载失败只有一种：这个 QuickJS 打包里的 `.so` 只有 4 KB 对齐
-     * （`p_align = 0x1000`），而 16 KB 页的设备要求更大的对齐。
+     * （实测 8 个 `.so` 全是 `p_align = 0x1000`），而 16 KB 页的设备要求更大的对齐。
      * 那是唯一能用一条**免费**判据预测出来的失败。
      *
      * 换成 `Class.forName("com.quickjs.QuickJS")` 会更彻底（它真的 dlopen 一次），
@@ -66,10 +66,17 @@ class QuickJsSandboxRuntime(
      * 而它只在沙箱进程里用得上。为了一个「罕见失败时报告得更准」去让每次冷启动
      * 都付这笔钱，不划算。
      *
+     * ## 为什么宁可误判也不去试一次
+     *
+     * Android 15/16 的 16 KB 设备有一套**向后兼容模式**，理论上可能让这类库跑起来。
+     * 那时 `sysconf` 仍然返回 16384，于是这里会判成「不能跑」—— 一次误判。
+     * 宿主不做这个赌：赌赢了只是多一个可用功能，赌输了是在**用户的一次工具调用里**
+     * 崩掉，而那种崩溃没人看得懂。
+     *
      * 其它原因的加载失败（ABI 不支持之类）会以「沙箱没能启动」的形式报出来，
      * 那句话里也写清了「这是宿主的问题」。
      */
-    override val available: Boolean = PAGE_SIZE_OK
+    override val unavailableReason: String? = if (PAGE_SIZE_OK) null else PAGE_SIZE_MESSAGE
 
     /**
      * 跨进程调用串行化。
@@ -263,5 +270,24 @@ class QuickJsSandboxRuntime(
         val PAGE_SIZE_OK: Boolean = runCatching {
             Os.sysconf(OsConstants._SC_PAGESIZE) < 16 * 1024L
         }.getOrDefault(false)
+
+        /**
+         * 16 KB 内存页的设备上，用户读到的那句话。
+         *
+         * ## 为什么不说「等上游更新」
+         *
+         * 因为这个库的上游**停在 2021 年**（`io.github.taoweiji.quickjs` 最后一版是
+         * 1.4.6，2021-06-19），而 `.so` 的 4 KB 对齐是编译期定死的 ——
+         * 要修只能自己重编一份 JNI 绑定，那正是 §82 权衡之后不做的事。
+         * 所以这里给的是**现在就能走的两条路**：换一台 4 KB 内存页的设备，
+         * 或者改用声明式 / MCP 形态的插件（那两个不碰原生库）。
+         *
+         * 说「等宿主升级」是不诚实的：宿主升级也救不了它。
+         */
+        const val PAGE_SIZE_MESSAGE =
+            "这台设备的内存页是 16 KB，脚本引擎的原生库只按 4 KB 对齐，" +
+                "在这类设备上加载它可能把宿主进程弄崩 —— 所以宿主关掉了脚本运行时。" +
+                "这个插件的清单是合法的：在 4 KB 内存页的设备上可以直接用，" +
+                "也可以改用声明式或 MCP 形态的插件。"
     }
 }

@@ -29,7 +29,7 @@ import com.aichat.plugin.runtime.script.ScriptRuntime
  * 「宿主不支持」。见 `ScriptHostTest`。
  */
 class FakeScriptRuntime(
-    override val available: Boolean = true,
+    override val unavailableReason: String? = null,
     private val outcome: ScriptOutcome = ScriptOutcome.Ok("""{"ok":true}"""),
 ) : ScriptRuntime {
 

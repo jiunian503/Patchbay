@@ -169,9 +169,10 @@ class AppContainer(context: Context) : ChatDeps {
      *
      * ## 装配期就要读它
      *
-     * `PluginRegistry.build` 会读 [ScriptRuntime.available] 来决定
-     * 「这台设备能不能跑 script 形态的插件」。读它不会加载原生库
-     * （见 `QuickJsSandboxRuntime.available`），所以放在这里没有冷启动代价。
+     * `PluginRegistry.build` 会读 [ScriptRuntime.unavailableReason] 来决定
+     * 「这台设备能不能跑 script 形态的插件」，并把那句原因**原样**带给用户
+     * （见 `QuickJsSandboxRuntime.unavailableReason`）。读它不会加载原生库，
+     * 所以放在这里没有冷启动代价。
      */
     private val scripts: ScriptRuntime by lazy {
         QuickJsSandboxRuntime(context = appContext, filesDir = appContext.filesDir)
