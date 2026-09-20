@@ -1,7 +1,49 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+}
+
+// ── 发布签名的凭据 ────────────────────────────────────────────────────────
+//
+// 从仓库根的 `keystore.properties` 读。**这个文件不入库**（见 .gitignore）——
+// 密钥和口令绝不能进 git，而 build.gradle.kts 是入库的。
+//
+// 文件**不存在**时整段什么都不做：release 照旧产出 `app-release-unsigned.apk`，
+// 本地构建 / CI / 「只想验一下混淆效果」都不需要任何凭据。
+//
+// 文件长这样（放仓库根，和 settings.gradle.kts 同级）：
+//
+//     storeFile=C:/Users/nian/keys/patchbay-release.jks
+//     storePassword=……
+//     keyAlias=patchbay
+//     keyPassword=……
+//
+// 生成密钥库（**只跑一次**，然后备份到至少两个地方）：
+//
+//     keytool -genkeypair -v -keystore patchbay-release.jks \
+//       -alias patchbay -keyalg RSA -keysize 4096 -validity 10000
+//
+// ⚠️ **这个 .jks 丢了，就再也无法给老用户升级** —— Android 只认同一个签名，
+// 换签名等于换了一个 App，老用户只能卸载重装（本地数据全丢）。
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps: Properties? = if (keystorePropsFile.exists()) {
+    Properties().apply { keystorePropsFile.inputStream().use { load(it) } }
+} else {
+    null
+}
+
+// 四个键缺一不可。缺了就在**配置阶段**报清楚，而不是等到签名那一步抛一个
+// 看不懂的错（或者更糟：悄悄产出 unsigned 包，发出去才发现）。
+if (keystoreProps != null) {
+    val required = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+    val missing = required.filter { keystoreProps.getProperty(it).isNullOrBlank() }
+    require(missing.isEmpty()) {
+        "keystore.properties 缺了这些键：$missing。" +
+            "补全它，或者把整个文件删掉 —— 删掉的话 release 会退回产出 unsigned APK。"
+    }
 }
 
 android {
@@ -46,6 +88,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // 签名配置只在**凭据齐了**的时候才创建。
+    //
+    // 创建在 buildTypes 之前 —— 下面 release 里要用 findByName 取它，
+    // 顺序反了会取到 null（然后静默产出 unsigned 包）。
+    if (keystoreProps != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             // 开混淆。实测三档（同一个 commit）：
@@ -70,6 +127,9 @@ android {
             // 仓库外（对的，42 MB 不该入库），所以发布流程里要有「归档 mapping」这一步。
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // 有 `keystore.properties` 就是它，没有就是 null —— null 时 AGP
+            // 产出 unsigned APK（和加这段之前的行为一模一样）。
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {

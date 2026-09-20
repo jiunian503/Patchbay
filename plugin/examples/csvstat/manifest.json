@@ -18,7 +18,7 @@
   "entry": {
     "script": {
       "main": "index.js",
-      "runtime": "node",
+      "runtime": "quickjs",
       "memoryLimitMb": 128,
       "timeoutMs": 15000
     }

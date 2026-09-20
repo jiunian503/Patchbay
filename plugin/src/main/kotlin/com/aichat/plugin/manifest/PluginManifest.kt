@@ -393,15 +393,37 @@ enum class AuthType {
 data class ScriptEntry(
     /** 入口 JS 文件相对路径。 */
     val main: String,
-    val runtime: ScriptRuntimeKind = ScriptRuntimeKind.Node,
+    val runtime: ScriptRuntimeKind = ScriptRuntimeKind.QuickJs,
     val memoryLimitMb: Int = 128,
     val timeoutMs: Long = 30_000,
 )
 
+/**
+ * 脚本插件跑在哪个引擎里。
+ *
+ * ## 只有一个值，是**故意**的
+ *
+ * 五十六轮把原来的 `Node` 换成了 `QuickJs`。协议从没发布过，换起来是自由的，
+ * 而留着 `node` 就等于承诺「Node 也会被支持」—— 按下面的理由它不会。
+ *
+ * 理由是**沙箱边界**：Node 会给插件一个完整进程，它自带 `net` / `http`，能绕开
+ * 宿主的白名单直连任意地址 —— 「主机名全等匹配、自己跟重定向、跨主机剥
+ * Authorization」（§45）那一整套立刻失效。QuickJS 没有 IO 能力，插件要联网只能
+ * 调宿主注入的 `fetch`，安全模型原样延续；顺带还能设 interrupt handler 打断
+ * `while(true)`。代价是作者没有 npm —— 但插件本来就该是薄适配层。
+ *
+ * 枚举里多一个永不实现的值，正是这个项目一直在清的那种「声明了但没人消费」。
+ * 与其留着它当陷阱（照着默认值去装 Node），不如现在就换掉。
+ *
+ * ## 实现状态
+ *
+ * `PluginHost` 对 `runtime: "script"` 目前统一报「宿主还不支持」（§47），
+ * 这个值现在**没有任何消费点**。它先在这里把决策钉住，实现时照着它写。
+ */
 @Serializable
 enum class ScriptRuntimeKind {
-    @SerialName("node")
-    Node,
+    @SerialName("quickjs")
+    QuickJs,
 }
 
 /**

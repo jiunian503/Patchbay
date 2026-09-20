@@ -133,7 +133,7 @@ class ManifestModelTest {
             serialNames(AuthType.serializer().descriptor),
         )
         assertEquals(
-            listOf("node"),
+            listOf("quickjs"),
             serialNames(ScriptRuntimeKind.serializer().descriptor),
         )
         assertEquals(

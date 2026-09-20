@@ -227,9 +227,9 @@
         },
         "runtime": {
           "enum": [
-            "node"
+            "quickjs"
           ],
-          "default": "node"
+          "default": "quickjs"
         },
         "memoryLimitMb": {
           "type": "integer",

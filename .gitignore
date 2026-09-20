@@ -21,3 +21,25 @@ build/
 # 真机验收截图。每轮都会新增十几张、单张 200K —— 是过程产物不是源码，
 # 留在工作区就行。真需要留证据的截图应该单独挑出来放进 docs/，而不是让它无限堆。
 artifacts/
+
+# ── 发布凭据：绝不入库 ───────────────────────────────────────────────
+#
+# `keystore.properties` 里是密钥库口令；`.jks` 是密钥本身。
+# 这两个东西进了 git 就等于把 App 的升级权交给了所有拿到仓库的人 ——
+# 而 Android 只认一个签名，泄露之后连「换一个签名」这个补救都做不了
+# （换了签名老用户就装不上新版）。
+#
+# ⚠️ 它们是**必须自己备份**的东西：丢了就再也无法给老用户升级。
+# 备份到至少两个互相独立的地方，别只放在这台机器上。
+keystore.properties
+*.jks
+*.keystore
+
+# 发版归档（tools/archive_release.py 的产出）。每份约 45 MB，
+# 主体是那个只对当版 APK 有效的 mapping.txt —— 该上传到 Release 附件，
+# 不该进 git。留一份在本机只是为了随时能 retrace。
+dist/
+
+# tools/ 下的 Python 辅助脚本（ui.py / imgcrop.py / archive_release.py …）
+__pycache__/
+*.pyc
