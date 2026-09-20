@@ -61,7 +61,10 @@ haze = "1.6.10"
 #
 # 这两条直接决定了沙箱只能靠**进程隔离**，不能靠解释器自带的闸 —— 见 SKILL.md。
 #
-# 另外 `.so` 只有 4KB 页对齐（`p_align = 0x1000`），16KB 页设备上会加载失败。
+# 另外 8 个 `.so` 全是 4KB 页对齐（`p_align = 0x1000`），16KB 页设备上加载会崩 ——
+# 而 1.4.6 是最后一版（2021-06），**修不了**。宿主不去试着加载，直接报一句对的话
+# （`ScriptRuntime.unavailableReason` 由 `QuickJsSandboxRuntime` 给）。体积账、ABI 策略
+# 与这条的完整判据见 SKILL.md §88。
 quickjs = "1.4.6"
 
 [libraries]

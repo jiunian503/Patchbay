@@ -95,9 +95,25 @@ ls app/build/outputs/apk/release/
 
 1. 目录里出现的是 **`app-release.apk`**，不是 `app-release-unsigned.apk`
 2. `apksigner` 输出 `Verifies`，且证书 DN 是你 `-dname` 里填的那个
+3. **`lib/` 下只有两个 ABI 目录**（`arm64-v8a` / `armeabi-v7a`）：
+
+```bash
+python -c "
+import zipfile
+z=zipfile.ZipFile('app/build/outputs/apk/release/app-release.apk')
+print(sorted(set(i.filename.split('/')[1] for i in z.infolist() if i.filename.startswith('lib/'))))
+"
+```
 
 ⚠️ 少了 `keystore.properties`（或四个键有缺的）时 AGP 会**静默退回产出 unsigned 包**，
 不报错。所以「看产物名」这一步不能省。
+
+> **release 包不带 `x86_64`**（只带 `arm64-v8a` + `armeabi-v7a`，见 SKILL.md §88）。
+> 要把它装进模拟器压一遍（§69 要求）时，靠的是模拟器的 **ARM 翻译层** ——
+> MuMu 12 有（`getprop ro.product.cpu.abilist64` 里能读到 `arm64-v8a`），
+> 别的镜像**不一定有**。装之前先看那个 prop：没有 `arm64-v8a` 就会报
+> `INSTALL_FAILED_NO_MATCHING_ABIS` —— 那时**用 debug 包验**（四个 ABI 全在），
+> 别去改 release 的过滤。
 
 ---
 
