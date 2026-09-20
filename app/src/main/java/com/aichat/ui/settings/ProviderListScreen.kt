@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -35,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -55,8 +57,9 @@ import com.aichat.ui.conversations.formatTime
  *
  * ## 标题从「服务商」改成了「设置」
  *
- * 这个页面里装着五块东西：隐私说明、长期记忆开关、集成（插件 / 联网搜索）、
- * 服务商列表、诊断（崩溃记录）。而标题一直写着「服务商」—— 用户从首页点
+ * 这个页面里装着六块东西：隐私说明、长期记忆开关、集成（插件 / 联网搜索）、
+ * 服务商列表、关于（检查更新）、诊断（崩溃记录）。而标题一直写着「服务商」——
+ * 用户从首页点
  * 「设置」进来，看到的是「服务商」，会以为走错了；而长期记忆和插件两个入口
  * **看起来像是服务商页的附注**，实际它们是这个 App 的主线功能。
  *
@@ -123,6 +126,17 @@ fun ProviderListScreen(
                 TextButton(onClick = { pendingDelete = null }) { Text("取消") }
             },
         )
+    }
+
+    // 「有新版本」那个框。
+    //
+    // 它由 `updateDialog` 单独一个字段控制，而**不是**「update 是 Available 就弹」——
+    // 那样用户关掉框之后，只要这一页重组一次（切出去再回来、改个开关）就又会弹，
+    // 变成关不掉的骚扰。现在的规则是：查到的那一刻弹一次，之后只有他自己
+    // 再点那一行才会弹。
+    val update = state.update
+    if (state.updateDialog && update is UpdateUiState.Available) {
+        UpdateAvailableDialog(available = update, onDismiss = viewModel::dismissUpdateDialog)
     }
 
     PbScaffold(
@@ -213,6 +227,30 @@ fun ProviderListScreen(
                 }
             }
 
+            // 「关于」放在服务商之后、诊断之前。
+            //
+            // **为什么不放最末**：诊断那一节只在真有崩溃记录时才出现（见下面），
+            // 它的语义是「这里出了点事，你看看」。把一个不常出现的东西放在页尾，
+            // 整页的高度会随状态跳；关于是常驻的，放它前面，页尾就稳定了。
+            //
+            // **为什么不放更上面**：这一节里没有需要经常改的东西。
+            // 设置页的顺序是「越往下越少动」，关于排在最后一批是对的。
+            item { PbSectionLabel("关于") }
+            item {
+                PbNavRow(
+                    icon = PbIcons.Refresh,
+                    title = "检查更新",
+                    // 正文由 [updateRowText] 给 —— 那一行要说的不只是「点我」，
+                    // 还包括当前是哪一版、查完的结果是什么。判断都在纯函数里，
+                    // 所以「比不了」和「已是最新」说的是两句不同的话这件事，
+                    // 有单测钉着
+                    body = updateRowText(state.update),
+                    // 已经查到有新版本时，点这一行是**把框再弹出来**而不是再查一次 ——
+                    // 分流在 ViewModel 里（见 onUpdateRowClick 的 KDoc）
+                    onClick = viewModel::onUpdateRowClick,
+                )
+            }
+
             // 「诊断」放在**最后**，两个理由：
             //
             // 1. 它是关于 App 自己的信息，不是配置。这一页的小节顺序是
@@ -236,6 +274,93 @@ fun ProviderListScreen(
             }
         }
     }
+}
+
+/**
+ * 「有新版本」的框。
+ *
+ * ## 为什么值得弹一个框
+ *
+ * 「检查更新」的结果本来只写在那一行上。但这一行在设置页**底部**，
+ * 用户点了之后视线可能已经往下移了 —— 更常见的是他点了就退出去，
+ * 那一行的变化他根本没看到。有新版本是**需要他做决定**的事
+ * （现在去下载 / 以后再说），所以值得打断一次。
+ *
+ * 反过来，查失败 / 比不了 / 已是最新**都不弹框** —— 那些只是「一次点击的
+ * 结果」，写在那一行上就够了，弹框等于让他多点一次「知道了」。
+ *
+ * ## 「去下载」打不开浏览器时不能默默什么都不发生
+ *
+ * [LocalUriHandler.openUri] 在没有能处理这个链接的应用时会抛
+ * （`ActivityNotFoundException`）。原来这里只 `runCatching` 吞掉的话，
+ * 用户点完框没关、浏览器没开、也没人说一句话 —— 他唯一能得出的结论是
+ * 「这个按钮是坏的」。所以失败时**不关框**，并把地址明写出来让他复制。
+ *
+ * 这和聊天页里点 Markdown 链接的处理不一样（那边是静默吞掉）：
+ * 那边链接是模型给的、几十个，弹一次错没有意义；这里是用户主动点的、
+ * 全 App 唯一一处，值得说清楚。
+ */
+@Composable
+private fun UpdateAvailableDialog(available: UpdateUiState.Available, onDismiss: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+
+    // 只活在这个框里的状态，所以不往 ViewModel 里塞 —— 框关了就没了，
+    // 没有需要跨重组或跨页面记住的东西
+    var openFailed by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("有新版本 ${available.latest}") },
+        text = {
+            Column {
+                Text(
+                    text = if (openFailed) {
+                        "没能打开浏览器。发布页面在下面这个地址，复制到浏览器里打开就能下载。"
+                    } else {
+                        "你现在用的是 ${available.current}。去下载会打开 GitHub 上的发布页面。"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (openFailed) {
+                    Spacer(Modifier.height(Space.sm))
+                    // 要能选中才能复制。不可选的文字在这儿等于没有
+                    SelectionContainer {
+                        Text(
+                            text = available.pageUrl,
+                            style = MonoLabelStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.height(Space.sm))
+                    // 这句是给「装不上」做准备的。从浏览器下载 APK 再装，
+                    // Android 一定会提「未知来源」；不提的话用户会以为
+                    // 这个 App 有问题，而不是以为这是正常流程
+                    Text(
+                        text = "覆盖安装不会动你已有的会话和密钥 —— 它们都在这台设备上。",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val opened =
+                        runCatching { uriHandler.openUri(available.pageUrl) }.isSuccess
+                    // 打开了才关框。没打开就留在这儿，并把地址亮出来
+                    if (opened) onDismiss() else openFailed = true
+                },
+            ) {
+                Text(if (openFailed) "再试一次" else "去下载")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("以后再说") }
+        },
+    )
 }
 
 /**

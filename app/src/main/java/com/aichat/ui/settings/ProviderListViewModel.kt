@@ -55,6 +55,24 @@ data class ProviderListUiState(
 
     /** 崩溃记录摘要。**null = 一条都没有**，这时「诊断」那一节整个不出现。 */
     val crashes: CrashSummary? = null,
+
+    /**
+     * 「检查更新」那一行的状态。
+     *
+     * 初值是 [UpdateUiState.Idle]，`current` 由 [ProviderListViewModel.refresh]
+     * 在 IO 线程上填一次 —— 读版本号要走一次 `PackageManager`，
+     * 和 `crashes.list()` 一样是阻塞调用，不该在主线程上做。
+     */
+    val update: UpdateUiState = UpdateUiState.Idle(current = null),
+
+    /**
+     * 查出有新版本时是否弹对话框。
+     *
+     * 和 [update] **分开**：用户把框关掉之后，那一行仍然要显示「有新版本 v1.2」——
+     * 结论不会因为他关了个框就失效。合成一个字段的话，关框就等于把结论也丢了，
+     * 他再想看就得重新问一次远端。
+     */
+    val updateDialog: Boolean = false,
 )
 
 class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
@@ -81,8 +99,11 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
             // 崩溃记录读的是**文件**（不是数据库），是阻塞调用 —— 必须挪到 IO 上。
             // viewModelScope 默认跑在主线程，直接调 list() 就是在主线程读磁盘
             val crashes = withContext(Dispatchers.IO) { container.crashes.list() }
-            _state.update {
-                it.copy(
+            // 版本号同理：读它要走一次 PackageManager（一个 binder 调用），
+            // 和崩溃记录一起在 IO 上拿回来
+            val version = withContext(Dispatchers.IO) { container.appVersionName }
+            _state.update { previous ->
+                previous.copy(
                     items = items,
                     loading = false,
                     longTermMemory = container.settings.longTermMemory(),
@@ -97,9 +118,86 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
                         ?.let { newest ->
                             CrashSummary(count = crashes.size, latestAt = newest.epochMillis)
                         },
+                    // 只在**还没查过**时填版本号。refresh() 也会被 setDefault /
+                    // delete 调到，无条件覆盖的话，用户查出来的结论会被一次
+                    // 无关的刷新冲掉 —— 表现为「刚查到有新版本，改了个默认服务商
+                    // 就没了」
+                    update = if (previous.update is UpdateUiState.Idle) {
+                        UpdateUiState.Idle(current = version)
+                    } else {
+                        previous.update
+                    },
                 )
             }
         }
+    }
+
+    /**
+     * 用户点了「检查更新」。
+     *
+     * ## 已经查过也能再查
+     *
+     * 不限「只查一次」—— 用户可能刚看完一个 Release 页面又回来点一次，
+     * 或者上次是限流（那时候「过一会儿再试」就是**唯一**正确的动作）。
+     *
+     * ## 但正在查的时候要挡住
+     *
+     * 连点两下会发两个请求：GitHub 未认证的接口一小时只给 60 次，
+     * 一次手抖花掉两次不划算，而且两个响应回来得看谁后到。
+     * 界面上按钮也是灰的，这里再挡一道是防住「状态还没传下去的那一帧」。
+     *
+     * ## 不把版本号塞进状态里读
+     *
+     * 用的是 [AppContainer.appVersionName] 而不是 `state.update.current`：
+     * 后者只在 `refresh()` 跑完之后才有值，而 `refresh()` 是异步的 ——
+     * 冷启动时手快，用户可能在它落地之前就点到了按钮。
+     */
+    fun checkForUpdate() {
+        if (_state.value.update is UpdateUiState.Checking) return
+        _state.update { it.copy(update = UpdateUiState.Checking) }
+        viewModelScope.launch {
+            // 读版本号要走一次 PackageManager。AppContainer 那边是 by lazy，
+            // 正常路径上 refresh() 已经读过了 —— 但挡不住「refresh 还没跑完」
+            // 这个竞态，所以这里照旧挪到 IO 上，不赌它已经初始化过
+            val version = withContext(Dispatchers.IO) { container.appVersionName }
+            val lookup = container.releases.latest()
+            val next = resolveUpdate(currentVersion = version, lookup = lookup)
+            _state.update { previous ->
+                previous.copy(
+                    update = next,
+                    // 只有「真的有新版」才自动弹框。查失败 / 无法判断 / 已是最新
+                    // 都只更新那一行 —— 弹一个「检查失败」的框打断用户，
+                    // 而结果其实已经写在那一行上了，等于让他多点一次「知道了」
+                    updateDialog = next is UpdateUiState.Available,
+                )
+            }
+        }
+    }
+
+    /**
+     * 用户点了「检查更新」那一行。
+     *
+     * ## 已经查到有新版本时，点它应该**把框再弹出来**，而不是再查一次
+     *
+     * 那一行这时写着「有新版本 v1.2 —— 你现在用的是 1.1」，用户点它想要的是
+     * 「去下载」，不是「再问一次」。再查一次有两个坏处：白花一次配额
+     * （未认证的 GitHub 接口一小时 60 次），而且如果他上次把框关了、
+     * 这次又只是想看看，那他要多等一次网络往返才看到同一句话。
+     *
+     * 分流放在 ViewModel 而不是界面里：界面只负责「这一行被点了」这件事，
+     * 「点了该干什么」取决于状态 —— 那是逻辑，不是布局。
+     */
+    fun onUpdateRowClick() {
+        if (_state.value.update is UpdateUiState.Available) {
+            _state.update { it.copy(updateDialog = true) }
+            return
+        }
+        checkForUpdate()
+    }
+
+    /** 用户把「有新版本」那个框关掉了。**只关框**，那一行的结论留着。 */
+    fun dismissUpdateDialog() {
+        _state.update { it.copy(updateDialog = false) }
     }
 
     fun setDefault(id: String) {

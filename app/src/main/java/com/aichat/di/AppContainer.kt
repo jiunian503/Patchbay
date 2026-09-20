@@ -25,6 +25,7 @@ import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolApprover
 import com.aichat.domain.tool.ToolResult
 import com.aichat.network.OpenAiChatClient
+import com.aichat.network.GitHubReleaseClient
 import com.aichat.network.RemoteTextFetcher
 import com.aichat.plugin.host.InstalledPlugin
 import com.aichat.plugin.host.McpRefresh
@@ -329,6 +330,60 @@ class AppContainer(context: Context) : ChatDeps {
     val manifestFetcher: RemoteTextFetcher by lazy {
         RemoteTextFetcher(client = manifestHttpClient, maxChars = MAX_MANIFEST_CHARS)
     }
+
+    /**
+     * 「检查更新」用的客户端。
+     *
+     * ## 为什么又开一个 OkHttpClient
+     *
+     * [pluginHttpClient] 是「**插件**发请求」用的（每一跳过白名单），
+     * [manifestHttpClient] 是「按**用户给的地址**取一段文本」用的（自己逐跳跟
+     * 重定向、每一跳查降级）。这个是「去一个**固定地址**问一句话」——
+     * 三条规则各不相同，共用会让人以为它们是同一件事。
+     *
+     * ## 两处刻意的设置
+     *
+     * - **`followSslRedirects = false`**：那个地址是 https，而且不该有重定向。
+     *   开着的话，一次 `https → http` 的跳转会被**静默**跟过去 ——
+     *   而它意味着「检查更新」这件事在明文里发生。真出现重定向时会拿到一个
+     *   3xx，如实报出来比悄悄跟过去好。
+     * - **超时短**：这是用户点完按钮在**等**的动作，不是后台任务。
+     *   15 秒还没结果就该告诉他没成，而不是让他盯着转圈。
+     */
+    private val updateHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
+            .followSslRedirects(false)
+            .build()
+    }
+
+    /**
+     * 「检查更新」的取数层。
+     *
+     * 地址**写死在这儿**：这是这个 App 自己的发布渠道，不是用户配置。
+     * 让它可配等于开了一个「把检查更新指向别处」的口子 ——
+     * 而那个口子没有任何用处（用户想手动看版本，直接开浏览器就行），
+     * 却多了一个能悄悄改掉的地方。
+     */
+    val releases: GitHubReleaseClient by lazy {
+        GitHubReleaseClient(
+            client = updateHttpClient,
+            apiUrl = "https://api.github.com/repos/jiunian503/Patchbay/releases/latest",
+        )
+    }
+
+    /**
+     * 当前安装的版本名，形如 `1.1`（**不带** `versionCode`）。
+     *
+     * 走 [AndroidDeviceInfo] 而不是自己读一遍 `PackageManager`：它已经是这个
+     * 仓库里唯一读 `versionName` 的地方（见 `PatchbayApp.installCrashLogging`）。
+     * 再写一份的话，两份迟早会给出不一样的版本号，而两份都「看着对」。
+     *
+     * 读不到时是 null —— 调用方据此说「读不到当前版本」，而不是编一个值去比。
+     */
+    val appVersionName: String? by lazy { AndroidDeviceInfo(appContext).versionName() }
 
     /**
      * 插件的运行时工作区（脚本插件存东西的地方）。

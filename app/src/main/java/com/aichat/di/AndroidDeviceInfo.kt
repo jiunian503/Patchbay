@@ -64,15 +64,37 @@ class AndroidDeviceInfo(private val context: Context) : DeviceInfoSource {
 
     override fun locale(): String? = Locale.getDefault().toLanguageTag().takeIf { it.isNotBlank() }
 
-    override fun appVersion(): String? = runCatching {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
-        val name = info.versionName ?: return@runCatching null
+    /**
+     * 读一次包信息。`runCatching` 是因为 `getPackageInfo` 在某些打包方式下会抛
+     * `NameNotFoundException` —— 拿不到就是拿不到，不编一个值出来。
+     *
+     * **整个仓库只有这里读 `versionName`**（见 `PatchbayApp.installCrashLogging`
+     * 的注释）：再写一份的话，迟早会和这一份给出不一样的版本号，而两份都"看着对"。
+     */
+    private fun packageInfo() = runCatching {
+        context.packageManager.getPackageInfo(context.packageName, 0)
+    }.getOrNull()
+
+    override fun appVersion(): String? = packageInfo()?.let { info ->
+        val name = info.versionName ?: return@let null
         // minSdk 是 28（= P），所以 longVersionCode 一定可用。
         // 这里原本有个 `SDK_INT >= P` 的分支 + 一个 @Suppress 的 versionCode
         // 回退，lint 的 ObsoleteSdkInt 指出它恒真 —— 是 minSdk 抬高之后
         // 留下来的死代码。
         "$name (${info.longVersionCode})"
-    }.getOrNull()
+    }
+
+    /**
+     * **裸的**版本名，形如 `1.1`，不带 `versionCode`。
+     *
+     * 和 [appVersion] 的区别就是那个 `(2)`：那个字符串是给**模型**看的
+     * （`device_info` 工具的返回值），而「检查更新」要拿版本号和远端的 tag 比，
+     * 比不了带括号的形态。
+     *
+     * 读不到时返回 null，由调用方决定怎么说 —— 这里不返回一个「未知」的占位串，
+     * 那种串会被拿去参与比较，然后得出一个看着很确定的错结论。
+     */
+    fun versionName(): String? = packageInfo()?.versionName?.takeIf { it.isNotBlank() }
 
     /**
      * 电量广播是「粘性」的：传 null 的 receiver 不会真的注册，
