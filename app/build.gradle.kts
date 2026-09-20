@@ -80,8 +80,11 @@ android {
         applicationId = "io.github.jiunian503.patchbay"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // `versionCode` **每次发版 +1，不可回退**（RELEASING.md 第 5 步）。
+        // v1.0 之后加了：script 插件运行时（QuickJS 沙箱，独立进程）+ 插件运行时工作区
+        // + ABI 策略（release 只带 arm64-v8a）。所以这一版是 1.1。
+        versionCode = 2
+        versionName = "1.1"
         // 跑 app 的 instrumented test（NavScopingTest）需要显式指定，
         // 别依赖 AGP 的默认值 —— 默认值改了的话报错是「找不到 runner」，
         // 和「测试没配好」长得一模一样，查起来要绕一圈
