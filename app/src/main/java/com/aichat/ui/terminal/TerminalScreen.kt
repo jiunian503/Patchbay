@@ -51,8 +51,20 @@ import com.aichat.ui.common.PbScaffold
  * （约 190 个，见 `TerminalViewModel` 的 KDoc 和 SKILL.md §100.8）。
  *
  * **不是**「内置了一个 Linux」。`apt install` 装不了、`curl`/`python` 系统里没有、
- * 也没有交互式终端（PTY 要 JNI）。这三条是**平台边界**，不是还没做 ——
- * 界面上要把这件事说清楚，否则用户敲一句 `apt install` 只会以为 App 坏了。
+ * 也没有交互式终端（PTY 要 JNI）。
+ *
+ * ⚠️ **但这三条都不是「平台做不到」** —— 文案里别写成那样：
+ *
+ * - `apt` / 别的发行版：proot + rootfs 能跑（SKILL.md §105.4 记了参考实现），
+ *   代价是 **67 MB 起** + 一个 JNI 模块 + 一个自己写的 VT 模拟器
+ * - `curl` / `python`：改名成 `lib*.so` + `useLegacyPackaging` 就能 exec 自己的
+ *   二进制（§105.3），代价是各带几 MB
+ * - 交互式终端：要自己写 JNI（`forkpty`），是**工程成本**，不是禁令
+ *
+ * 所以界面上说的是「**这个 App 选了零体积那条路**」，而不是「装不进来」——
+ * 把取舍说成禁令，等于替 Android 背一口它没欠的锅。
+ * 但「`apt install` 现在跑不了」这件事仍然要说清楚：不说的话，用户敲一句
+ * 只会以为 App 坏了。
  *
  * 也**不是**「让 AI 跑命令」那个能力：那是给模型的工具（`Tool` 那条线），
  * 这一页是给人用的。两者共用同一个机制，但入口和风险不同。
@@ -173,7 +185,9 @@ private fun TerminalIntro(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "没有的东西：apt（装软件）、curl、python。这些不是没做，是装不进来。",
+            text = "没有的东西：apt（装软件）、curl、python。不是装不进来，是这个 App 没装 —— " +
+                "apt 要一整个 Linux 用户空间（67 MB 起），curl / python 也要各带几 MB 的二进制。" +
+                "这一页选了零体积那条路。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

@@ -30,12 +30,17 @@ import kotlinx.serialization.json.JsonObject
  * `BuiltinTools.all` 的顺序是「风险从低到高」。它是唯一一个**能改用户数据**的，
  * 所以排在 `fetch_url` 之后。
  *
- * ## 描述里为什么专门写「做不到的事」
+ * ## 描述里为什么专门写「这台设备上没有的东西」
  *
  * 系统里没有 `apt` / `curl` / `python`，而模型**默认会以为有** ——
  * 那是它在 Linux 上的经验。不写清的话，用户会看到模型反复尝试
  * `apt install python3`，每次都弹一个框让他点「拒绝」。
  * 这是「把边界写进提示词」，不是注释：改它等于改行为，所以也要跟着一起测。
+ *
+ * ⚠️ **措辞：「这台设备上没有」不是「做不到」** —— 前者是当前状态，后者是结论。
+ * 写成后者，模型会把「Android 装不了」转述给用户，而真相是这个 App 选了零体积
+ * 那条路（`lib*.so` + `useLegacyPackaging` 能 exec，proot + rootfs 那套的代价
+ * 是 67 MB 起，见 SKILL.md §105.3–§105.5）。`RunCommandToolTest` 里有一条守着它。
  */
 class RunCommandTool(private val shell: ShellSource) : Tool {
 
@@ -45,8 +50,8 @@ class RunCommandTool(private val shell: ShellSource) : Tool {
             "系统里自带的命令都能用（ls、cat、grep、find、ps、df、du、ip、sed、awk、tar 等，" +
             "约 190 个），不需要先安装任何东西。" +
             "命令以这个 App 的身份运行，能读 App 有权读的东西，包括共享存储（/sdcard）。" +
-            "**做不到的事，别去试**：装软件（没有 apt / pkg）、联网下载（没有 curl / wget）、" +
-            "跑 python / node（系统里没有这些解释器）；" +
+            "**这台设备上没有的东西，别去试**：装软件（没有 apt / pkg）、联网下载（没有 curl / wget）、" +
+            "跑 python / node（没有这些解释器）；" +
             "`dumpsys`、`settings` 这类需要更高权限的命令会被系统拒绝。" +
             "每次调用都要用户点一次确认，所以别拆成几十个小步骤 —— " +
             "一条命令里用 && 和管道一次做完。",

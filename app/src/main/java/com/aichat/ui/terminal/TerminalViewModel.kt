@@ -23,7 +23,10 @@ import kotlinx.coroutines.launch
  *   但 `dumpsys`、`settings` 这类要更高权限的会被 **Android 权限层**挡回来
  *   （是 `Permission Denial` / `SecurityException`，**不是 SELinux**）。
  * - **不能 `apt install`**：那条路要 exec 应用自己目录里的二进制，被 Android 10 起的
- *   W^X 规则封死（§100.1）。这不是「还没做」，是**做不到**。
+ *   W^X 规则封死（§100.1）。
+ *   ⚠️ **但这不是「做不到」** —— 二进制放进 `nativeLibraryDir` 就能 exec（§105.3），
+ *   整套 proot + rootfs 的代价也量过：**67 MB 起 + 一个 JNI 模块 + 自己写的 VT
+ *   模拟器**（§105.5）。所以这一页是**取舍**，不是平台禁令；别写成「装不进来」。
  *
  * ## 为什么不做成交互式终端
  *

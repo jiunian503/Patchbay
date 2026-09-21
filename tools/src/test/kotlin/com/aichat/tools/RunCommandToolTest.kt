@@ -233,18 +233,28 @@ class RunCommandToolTest {
     }
 
     /**
-     * 描述里必须写明「做不到的事」。
+     * 描述里必须写明**这台设备上没有的东西**。
      *
      * 这段文字是提示词，不是注释 —— 不写的话模型会反复试 `apt install python3`，
      * 每一次都要用户点一下「拒绝」。
+     *
+     * ⚠️ 措辞也要守：「这台设备上没有」与「做不到」对模型是**两件事** ——
+     * 前者是**当前状态**，后者是**结论**。写成后者，模型会照着这个结论回答用户
+     * （「Android 装不了」），而真相是这个 App 选了零体积那条路：
+     * `curl` / `python` 改名成 `lib*.so` 就能 exec（SKILL.md §105.3），
+     * `apt` 那套 proot + rootfs 的代价是 **67 MB 起**（§105.5）。
      */
     @Test
-    fun `描述里写明了做不到的事`() {
+    fun `描述里写明了这台设备上没有的东西`() {
         val description = tool(shell(ShellOutcome("", 0))).definition.description
 
         assertTrue(description, description.contains("apt"))
         assertTrue(description, description.contains("curl"))
         assertTrue(description, description.contains("python"))
+        assertFalse(
+            "别把「这台设备上没有」写成「做不到」—— 模型会照着这句话回答用户：$description",
+            description.contains("做不到"),
+        )
     }
 
     @Test
