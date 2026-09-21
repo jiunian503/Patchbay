@@ -173,7 +173,7 @@ fun ConversationSearchScreen(
                     ) {
                         item {
                             Text(
-                                text = "找到 ${state.hits.size} 条",
+                                text = searchResultHeader(state.hits.size, state.truncated),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(start = Space.xs, top = Space.md, bottom = Space.xs),

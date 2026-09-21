@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aichat.crash.CrashStore
 import com.aichat.di.AppContainer
 import com.aichat.theme.MonoLabelStyle
 import com.aichat.theme.Space
@@ -425,7 +426,11 @@ private fun UpdateAvailableDialog(available: UpdateUiState.Available, onDismiss:
 internal fun crashRowBody(summary: CrashSummary): String {
     // 「最近一次」只在真有记录时才有意义 —— 一份都没解析出来时 `latestAt` 是 null
     val at = summary.latestAt?.let { "，最近一次在 ${formatTime(it)}" }.orEmpty()
-    val tail = "堆栈只存在这台设备上，复制出来就能拿去查。"
+    // ⚠️ 「只留最近几份」不能省：这个上限不写出来的话，「有 5 条记录」会被读成
+    // 「一共崩过 5 次」—— 而更早的那些**已经被新的挤掉了**（`CrashStore.MAX_FILES`）。
+    // 崩溃循环时这一点恰恰是用户想知道的信号。判据见 §111。
+    val tail = "堆栈只存在这台设备上，复制出来就能拿去查。" +
+        "记录只留最近 ${CrashStore.MAX_FILES} 份，更早的会被新的挤掉。"
     return when {
         summary.count > 0 && summary.skipped > 0 ->
             "有 ${summary.count} 条记录，另有 ${summary.skipped} 份没能显示出来$at。$tail"

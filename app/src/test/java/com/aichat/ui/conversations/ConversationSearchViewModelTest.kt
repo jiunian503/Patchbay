@@ -57,10 +57,16 @@ class ConversationSearchViewModelTest {
 
         val queries = mutableListOf<String>()
 
+        /** 每次被要了多少条。「多要一条」那条判据靠它守。 */
+        val limits = mutableListOf<Int>()
+
         override suspend fun search(query: String, limit: Int): List<MessageHit> {
             queries += query
+            limits += limit
             delays[query]?.let { delay(it) }
-            return results[query].orEmpty()
+            // 按上限裁剪 —— 真实实现就是这么做的（SQL 的 LIMIT）。
+            // 不裁的话，「多要一条」在假实现上根本不成立，那条判据就成了空话。
+            return results[query].orEmpty().take(limit)
         }
     }
 
@@ -245,5 +251,47 @@ class ConversationSearchViewModelTest {
 
         assertTrue("被取消的检索不该再写回结果", vm.state.value.hits.isEmpty())
         assertFalse(vm.state.value.searched)
+    }
+
+    /**
+     * 「后面还有更多」是**多要一条**问出来的。
+     *
+     * 只查上限那么多的话，「刚好 50 条」和「后面还有 200 条」在返回值上**长得一样** ——
+     * 而结果区原来写的「找到 N 条」正是把这句假话说了出去（§111）。
+     */
+    @Test
+    fun `结果顶到上限时会标记后面还有`() = runTest(dispatcher) {
+        val limit = ConversationSearch.DEFAULT_LIMIT
+        val many = (1..limit + 1).map { hit("会议 $it") }
+        val search = FakeSearch(results = mapOf("会议" to many))
+        val vm = ConversationSearchViewModel(search)
+
+        vm.onQueryChange("会议")
+        vm.submit()
+        advanceUntilIdle()
+
+        assertEquals("必须多要一条，否则分不出「刚好」和「还有」", listOf(limit + 1), search.limits)
+        assertTrue("拿回 ${limit + 1} 条 ⇒ 后面还有", vm.state.value.truncated)
+        assertEquals("界面上只列 $limit 条", limit, vm.state.value.hits.size)
+    }
+
+    /**
+     * 刚好顶到上限**不算**截断 —— 那说明库里的匹配到 50 为止。
+     *
+     * 这时候报「还有更多」是**方向相反的同一种假话**，所以两个方向都要断。
+     */
+    @Test
+    fun `刚好等于上限时不标记后面还有`() = runTest(dispatcher) {
+        val limit = ConversationSearch.DEFAULT_LIMIT
+        val exact = (1..limit).map { hit("会议 $it") }
+        val search = FakeSearch(results = mapOf("会议" to exact))
+        val vm = ConversationSearchViewModel(search)
+
+        vm.onQueryChange("会议")
+        vm.submit()
+        advanceUntilIdle()
+
+        assertFalse("要 $limit 条拿到 $limit 条，说明到顶了", vm.state.value.truncated)
+        assertEquals(limit, vm.state.value.hits.size)
     }
 }

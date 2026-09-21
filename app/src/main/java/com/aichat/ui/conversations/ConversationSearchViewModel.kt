@@ -27,6 +27,24 @@ data class ConversationSearchUiState(
     val searched: Boolean = false,
 
     /**
+     * 上一次检索**顶到了上限** —— 也就是后面还有没列出来的。
+     *
+     * ## 为什么非要有这个字段
+     *
+     * 一次检索最多要 [ConversationSearch.DEFAULT_LIMIT] 条，而结果区原来只写
+     * 「找到 N 条」：匹配 200 条时那句话是**事实错误** —— 用户会以为库里
+     * 只有 50 条，于是不再往下找。**上限没露在外面，就会把人引到错结论上**（§111）。
+     *
+     * ## 「还有没有更多」是**多要一条**问出来的
+     *
+     * 只查上限那么多的话，「刚好 50 条」和「还有更多」在返回值上**长得一样**。
+     * 所以要 51 条：拿到 51 条就说明至少还有 51 条（取前 50 条显示、把这一位置真）；
+     * 只拿到 50 条则说明库里的匹配到 50 为止 —— 那种情况**不算**截断，
+     * 报「还有更多」同样是假话。
+     */
+    val truncated: Boolean = false,
+
+    /**
      * **产生当前这批 [hits] 的那次查询**，不是输入框里的当前文字。
      *
      * 两者必须分开。用户搜完「北京」拿到结果，接着在输入框里改成「上海」
@@ -88,10 +106,17 @@ class ConversationSearchViewModel(private val search: ConversationSearch) : View
 
         _state.update { it.copy(searching = true) }
         running = viewModelScope.launch {
-            val hits = search.search(query)
+            // 多要一条：拿回来超过上限就说明后面还有。
+            // 只查上限那么多的话，「刚好 50 条」和「还有更多」分不出来 ——
+            // 见 [ConversationSearchUiState.truncated] 的 KDoc。
+            val limit = ConversationSearch.DEFAULT_LIMIT
+            val found = search.search(query, limit = limit + 1)
+            val truncated = found.size > limit
+
             _state.update {
                 it.copy(
-                    hits = hits,
+                    hits = if (truncated) found.take(limit) else found,
+                    truncated = truncated,
                     searching = false,
                     searched = true,
                     // 连查询词一起记下来：后面标命中位置、跳转都用它，
