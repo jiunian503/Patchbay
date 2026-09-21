@@ -362,25 +362,43 @@ class CharacterCardParserTest {
     }
 
     @Test
-    fun `备用开场白会被提示没导进来`() {
+    fun `备用开场白也装进来，不再提示装不下`() {
         val card = parseCard(
             """{"name":"A","first_mes":"你来啦","alternate_greetings":["早","晚安"]}"""
         )
         assertEquals("你来啦", card.firstMessage)
-        assertTrue(
-            "备用的那两条要说清楚：${card.warnings}",
-            card.warnings.any { it.contains("2 条") && it.contains("备用开场白") },
+        assertEquals(listOf("早", "晚安"), card.alternateGreetings)
+        // 上一版这里会多一条「还带了 2 条备用开场白……其余的没导进来」。
+        // 现在它们真的导进来了，那句话就成了假消息 —— 用户会以为丢了东西，
+        // 然后去找卡的原作者
+        assertFalse(
+            "备用开场白装得下了，不该再提示装不下：${card.warnings}",
+            card.warnings.any { it.contains("开场白") },
         )
     }
 
     @Test
-    fun `只有备用开场白时主开场白是空的`() {
-        // 卡里可以只写备用开场白（让用户自己挑一条开局）。
-        // 本版没有「挑开场白」这个入口，所以主开场白是空的 ——
-        // 但备用那几条必须提示，否则用户会以为导进来就能用
+    fun `只有备用开场白时主开场白是空的，但备用读到了`() {
+        // 卡里可以只写备用开场白。主开场白仍然是空串 —— 那是有意义的：
+        // 编辑页上「主开场白」那个框就该是空的。但备用这一列有内容，
+        // 于是新会话里角色照样会先开口（候选来自 `greetingsFor` 的拼接）
         val card = parseCard("""{"name":"A","alternate_greetings":["早"]}""")
         assertEquals("", card.firstMessage)
-        assertTrue("备用的要提示：${card.warnings}", card.warnings.any { it.contains("1 条") })
+        assertEquals(listOf("早"), card.alternateGreetings)
+    }
+
+    @Test
+    fun `备用开场白里的空白条目被滤掉`() {
+        // 写卡工具留空字段、用空串占位都很常见。留着的话「候选里有一条空话」
+        // 会体现在概率上 —— 抽中它的那一次，角色一言不发
+        val card = parseCard("""{"name":"A","alternate_greetings":[" 早 ","","  "]}""")
+        assertEquals(listOf("早"), card.alternateGreetings)
+    }
+
+    @Test
+    fun `卡里没写备用开场白时是空列表`() {
+        val card = parseCard("""{"name":"A","first_mes":"你来啦"}""")
+        assertTrue("没写就是没有，不是「有一条空话」：${card.alternateGreetings}", card.alternateGreetings.isEmpty())
     }
 
     @Test

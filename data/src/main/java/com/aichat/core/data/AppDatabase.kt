@@ -40,6 +40,9 @@ import androidx.room.RoomDatabase
  *   原话和推翻它的理由都记在 [CharacterEntity] 里。
  * - **v8**：`character` 加 `first_message`（开场白）。它和人设的生命周期
  *   不同（人设每轮都发，开场白只在会话第一句出现一次），所以是两列。
+ * - **v9**：`character` 加 `alternate_greetings_json`（备用开场白，JSON 数组）。
+ *   导入角色卡时不再把卡里的 `alternate_greetings` 丢掉，新会话里从
+ *   「主 + 备用」里抽一条说。
  */
 @Database(
     entities = [
@@ -51,7 +54,7 @@ import androidx.room.RoomDatabase
         CharacterEntity::class,
         WorldBookEntryEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -121,6 +124,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_5_6,
             MIGRATION_6_7,
             MIGRATION_7_8,
+            MIGRATION_8_9,
         )
     }
 }

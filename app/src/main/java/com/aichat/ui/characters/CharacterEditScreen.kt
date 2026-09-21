@@ -154,6 +154,23 @@ fun CharacterEditScreen(
                 )
             }
 
+            item {
+                OutlinedTextField(
+                    value = state.alternateGreetingsText,
+                    onValueChange = viewModel::setAlternateGreetings,
+                    label = { Text("备用开场白") },
+                    supportingText = {
+                        // 明说「一行一条」：这个框只按换行切，不认逗号顿号
+                        // （开场白里本来就有逗号）。不说的话，用户会按触发词
+                        // 那个框的习惯用顿号分隔，然后发现只出来一条
+                        Text("一行一条，可选。开新对话时和上面那句一起随机挑一条说。")
+                    },
+                    minLines = 3,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             item { PbSectionLabel("世界书") }
 
             item { WorldBookHint() }

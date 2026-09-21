@@ -37,6 +37,15 @@ data class CharacterEditUiState(
     val persona: String = "",
     /** 开场白：新会话里角色先说的那一句。空 = 没有。 */
     val firstMessage: String = "",
+    /**
+     * 备用开场白，**一个多行文本框、一行一条**。
+     *
+     * 不做成「一组输入框 + 增删按钮」：那需要在状态里维护一批带 id 的行、
+     * 以及每一行的焦点，而这里最多也就几条 —— 和世界书词条不同，词条
+     * 有顺序、有开关，所以它值得有自己的行；开场白只是一句话，
+     * 用换行分开就够（同 [parseKeys] 的先例）。
+     */
+    val alternateGreetingsText: String = "",
     val entries: List<WorldBookEntryForm> = emptyList(),
     /** 保存成功。界面据此返回上一页。 */
     val saved: Boolean = false,
@@ -59,6 +68,7 @@ class CharacterEditViewModel(
                 return@launch
             }
             val row = container.characters.get(characterId)
+            val alternates = container.characters.alternateGreetingsFor(characterId)
             val entries = container.characters.entriesFor(characterId)
             _state.update {
                 it.copy(
@@ -68,6 +78,9 @@ class CharacterEditViewModel(
                     description = row?.description.orEmpty(),
                     persona = row?.persona.orEmpty(),
                     firstMessage = row?.firstMessage.orEmpty(),
+                    // 回填成「一行一条」——和输入框的约定一致。用别的分隔符
+                    // 回填的话，用户看到的东西和他该往里写的东西不是一个形状
+                    alternateGreetingsText = alternates.joinToString("\n"),
                     entries = entries.map { entry ->
                         WorldBookEntryForm(
                             id = entry.id,
@@ -91,6 +104,9 @@ class CharacterEditViewModel(
     fun setPersona(value: String) = _state.update { it.copy(persona = value) }
 
     fun setFirstMessage(value: String) = _state.update { it.copy(firstMessage = value) }
+
+    fun setAlternateGreetings(value: String) =
+        _state.update { it.copy(alternateGreetingsText = value) }
 
     fun addEntry() = _state.update { it.copy(entries = it.entries + WorldBookEntryForm()) }
 
@@ -138,6 +154,7 @@ class CharacterEditViewModel(
                             description = snapshot.description,
                             persona = snapshot.persona,
                             firstMessage = snapshot.firstMessage,
+                            alternateGreetings = parseGreetings(snapshot.alternateGreetingsText),
                             entries = snapshot.entries.map { it.toDraft() },
                         )
                     )
@@ -166,6 +183,23 @@ class CharacterEditViewModel(
  */
 internal fun parseKeys(text: String): List<String> =
     text.split(',', '，', '、', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+
+/**
+ * 备用开场白输入框 → 列表。
+ *
+ * ## 只按换行切，**不认逗号顿号** —— 这是它和 [parseKeys] 的关键区别
+ *
+ * 触发词是短标签（「老王」「王叔」），里面不可能有标点；开场白是**一整句话**，
+ * 逗号顿号在里面是常态（「你来啦，我等好久了。」）。照 [parseKeys] 的规则切
+ * 的话，一句开场白会被切成三条，而用户看到的是「我明明只写了一句」——
+ * 界面上完全看不出发生了什么。
+ *
+ * 空行丢掉：用户按两次回车留个空行是排版习惯，不该变成一条空开场白
+ * （[com.aichat.domain.character.pickGreeting] 还会再滤一遍，但落库前
+ * 就清掉能少一份脏数据）。
+ */
+internal fun parseGreetings(text: String): List<String> =
+    text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
 
 private fun WorldBookEntryForm.toDraft() = WorldBookEntryDraft(
     id = id,

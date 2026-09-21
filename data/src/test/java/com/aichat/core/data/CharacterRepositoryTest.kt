@@ -37,6 +37,7 @@ class CharacterRepositoryTest {
         description: String = "",
         persona: String = "你是一位诗人。",
         firstMessage: String = "",
+        alternateGreetings: List<String> = emptyList(),
         entries: List<WorldBookEntryDraft> = emptyList(),
     ) = CharacterDraft(
         id = id,
@@ -44,6 +45,7 @@ class CharacterRepositoryTest {
         description = description,
         persona = persona,
         firstMessage = firstMessage,
+        alternateGreetings = alternateGreetings,
         entries = entries,
     )
 
@@ -81,6 +83,96 @@ class CharacterRepositoryTest {
     fun `没填开场白时是空串`() = runTest {
         val id = repo.save(draft())
         assertEquals("", characters.rows.getValue(id).firstMessage)
+    }
+
+    // ---- 备用开场白（v9 加的那一列）----
+
+    /**
+     * 落库是 JSON 列，但**读出来必须是 `List<String>`** ——
+     * `alternate_greetings_json` 这个存储形状不该漏到调用方。
+     */
+    @Test
+    fun `备用开场白以 List 形态读出，不是 JSON 字符串`() = runTest {
+        val id = repo.save(draft(alternateGreetings = listOf("早", "晚安")))
+        assertEquals("[\"早\",\"晚安\"]", characters.rows.getValue(id).alternateGreetingsJson)
+        assertEquals(listOf("早", "晚安"), repo.alternateGreetingsFor(id))
+    }
+
+    @Test
+    fun `备用开场白落库前裁空白、滤空串`() = runTest {
+        val id = repo.save(draft(alternateGreetings = listOf(" 早 ", "", "  ", "晚安")))
+        assertEquals(listOf("早", "晚安"), repo.alternateGreetingsFor(id))
+    }
+
+    /**
+     * 和主开场白同一条规则：`save` 是**整体替换**，草稿没带就等于清空。
+     * 漏了这条，一次「只改了个名字」的保存会把备用开场白悄悄抹掉，而且不报错。
+     */
+    @Test
+    fun `更新时备用开场白整体替换，草稿没带就清空`() = runTest {
+        val id = repo.save(draft(alternateGreetings = listOf("早")))
+        assertEquals(listOf("早"), repo.alternateGreetingsFor(id))
+
+        repo.save(draft(id = id, name = "新名字"))
+
+        assertTrue(repo.alternateGreetingsFor(id).isEmpty())
+    }
+
+    @Test
+    fun `坏掉的备用开场白 JSON 不抛异常，返回空列表`() = runTest {
+        characters.rows["broken"] = CharacterEntity(
+            id = "broken",
+            name = "坏的",
+            alternateGreetingsJson = "{这不是 JSON",
+            createdAt = 1L,
+            updatedAt = 1L,
+        )
+        // 一份写坏的 JSON 最坏只该让「这次没有备用开场白」，
+        // 而不是让整个会话发不出消息
+        assertTrue(repo.alternateGreetingsFor("broken").isEmpty())
+    }
+
+    /**
+     * v8 升上来的老行是 `DEFAULT ''`（不是 `[]`）—— 空串解不开，
+     * 那条路径必须**安静地**给出「没有备用开场白」。
+     */
+    @Test
+    fun `老数据的空串解成空列表`() = runTest {
+        val id = repo.save(draft())
+        assertEquals("[]", characters.rows.getValue(id).alternateGreetingsJson)
+        assertTrue(repo.alternateGreetingsFor(id).isEmpty())
+    }
+
+    // ---- greetingsFor：注入侧的候选 ----
+
+    @Test
+    fun `候选是主开场白在前、备用在后`() = runTest {
+        val id = repo.save(
+            draft(firstMessage = "你来啦", alternateGreetings = listOf("早", "晚安"))
+        )
+        assertEquals(listOf("你来啦", "早", "晚安"), repo.greetingsFor(id))
+    }
+
+    @Test
+    fun `主开场白为空时候选只剩备用`() = runTest {
+        val id = repo.save(draft(alternateGreetings = listOf("早")))
+        assertEquals(listOf("早"), repo.greetingsFor(id))
+    }
+
+    @Test
+    fun `两条都没有时候选是空列表`() = runTest {
+        val id = repo.save(draft())
+        assertTrue(repo.greetingsFor(id).isEmpty())
+    }
+
+    /**
+     * 角色不存在（会话指向一张已删掉的卡）时返回空，**不抛** ——
+     * 正确行为是「这次不落开场白」，抛异常会让用户看到一条和聊天无关的报错。
+     */
+    @Test
+    fun `角色不存在时返回空列表，不抛`() = runTest {
+        assertTrue(repo.greetingsFor("没有这个角色").isEmpty())
+        assertTrue(repo.alternateGreetingsFor("没有这个角色").isEmpty())
     }
 
     @Test

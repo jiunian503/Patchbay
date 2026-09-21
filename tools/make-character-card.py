@@ -34,11 +34,14 @@ from pathlib import Path
 #
 # - `creator_notes`                                  → 界面简介
 # - `description` / `personality` / `scenario` / `mes_example` → 人设的四个小节
-# - `first_mes` / `alternate_greetings` / `post_history_instructions`
-#                                                    → 应当出现在「没导进来」的提示里
+# - `first_mes` / `alternate_greetings`              → 开场白与备用开场白（都装得下）
+# - `post_history_instructions`                      → 应当出现在「没导进来」的提示里
 # - 世界书里一条 `selective`、一条 `constant`、一条空条目 → 也该出现在提示里
 #
 # 也就是说：**用它手测，正常路径和所有警告一次都能看到。**
+#
+# 备用开场白刻意给**两条**：只给一条的话，「随机挑一条」和「永远说主开场白」
+# 在设备上看起来完全一样 —— 验不出来。
 CARD = {
     "spec": "chara_card_v2",
     "spec_version": "2.0",
@@ -51,7 +54,10 @@ CARD = {
         "creator_notes": "照着小说《茶山》捏的，用于手测导入。",
         "first_mes": "你来啦。今年的雨前可采了。",
         "post_history_instructions": "回答保持简短。",
-        "alternate_greetings": ["又见面了。"],
+        "alternate_greetings": [
+            "又见面了。",
+            "（她把炉子拨旺）今天想喝什么？",
+        ],
         "character_book": {
             "name": "茶山设定",
             "recursive_scanning": False,

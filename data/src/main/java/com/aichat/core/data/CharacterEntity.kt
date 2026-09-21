@@ -74,6 +74,33 @@ data class CharacterEntity(
     @ColumnInfo(name = "first_message")
     val firstMessage: String = "",
 
+    /**
+     * 备用开场白：和 [firstMessage] 一起构成「新会话里可以说的开场白」。
+     *
+     * ## 为什么是 JSON 列
+     *
+     * 和 `world_book_entry.keys_json` 同一个理由（见 [WorldBookEntryEntity]）：
+     * 这份数据的读写形状是**整体**的 —— 编辑页永远是「读出全部、改一条、
+     * 整体写回」，从来没有「按某一条开场白查询」这种需求。而且这个库里凡是
+     * 「整体读写的结构化数据」都是 JSON 列，**没有 `@TypeConverters`**，
+     * 编解码在 [CharacterRepository] 里手写（实体不依赖序列化框架）。
+     *
+     * ## 为什么不并进 [firstMessage]（合成一个列表）
+     *
+     * 主开场白有**独立的语义**：卡里 `first_mes` 是作者指定的那一句，
+     * `alternate_greetings` 是「另外还能这么说」。分成两列，「只看主开场白」
+     * 这条路径（编辑页那个单独的输入框、不想要备用的用户）就一直是简单的，
+     * 不需要在列表下标和「哪一条是主」之间来回换算。
+     *
+     * 至于**挑哪一条去说**，不在这里 —— 那是宿主层的事
+     * （`:app` 的 `CharacterGreetingSource` 抽签），`:chat` 只知道
+     * 「这一轮该说这句」。
+     *
+     * 空串 = 没有备用开场白（不是 `[]`：v8 升上来的老数据就是空串）。
+     */
+    @ColumnInfo(name = "alternate_greetings_json")
+    val alternateGreetingsJson: String = "",
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
 

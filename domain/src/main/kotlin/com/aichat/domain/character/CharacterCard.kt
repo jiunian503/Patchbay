@@ -39,6 +39,13 @@ data class ImportedCharacter(
      * 于是每轮都想再说一遍。
      */
     val firstMessage: String,
+    /**
+     * 备用开场白：和 [firstMessage] 一起当候选，新会话里随机挑一条说。
+     *
+     * 保原卡顺序，但**没有 `insertion_order` 那层语义** —— 这一列只被
+     * 「挑一条」消费，不存在「先说什么后说什么」。空列表 = 卡里没写。
+     */
+    val alternateGreetings: List<String>,
     /** 世界书词条，**已按原卡的 `insertion_order` 排好序**。 */
     val entries: List<ImportedEntry>,
     /**
@@ -86,9 +93,10 @@ data class ImportedEntry(
  * | `creator_notes` | **界面简介** | 规格原文：`MUST NOT be used inside prompts` + `SHOULD be very discoverable` —— 正好就是「简介」这个位置 |
  * | `description` / `personality` / `scenario` / `mes_example` | **人设正文**（分节拼起来） | 这四段都是「发给模型看的设定」，和这个 App 的「人设」是同一个东西 |
  * | `first_mes` | **开场白** | 卡里那句「角色先说的话」。它和人设的**生命周期不同**（人设每轮都发，开场白只在会话第一句出现一次），所以是另一个字段而不是并进人设 |
+ * | `alternate_greetings` | **备用开场白** | 「另外还能这么说」的那几条。和 `first_mes` 一起当候选，新会话里随机挑一条说 —— 挑哪条不在这里（是宿主层 `pickGreeting` 的事），这里只管读出来 |
  * | `character_book.entries[]` | 世界书词条 | `keys` / `content` / `enabled` / `insertion_order` / `case_sensitive` |
  *
- * 装不下的（备用开场白、全局提示词替换、条件触发、常驻条目、递归扫描）会进
+ * 装不下的（全局提示词替换、条件触发、常驻条目、递归扫描）会进
  * [ImportedCharacter.warnings]，**不静默丢**。
  *
  * ## 为什么不用 `@Serializable` 定义 DTO
@@ -224,6 +232,12 @@ object CharacterCardParser {
             // 空串也是合法的（卡里没写开场白）—— 这里不做「有没有」的判断，
             // 那是下游的事：`:chat` 只管「有东西就落一条消息」
             firstMessage = data.str("first_mes").trim(),
+            // 空白的丢掉：写卡工具留空字段、或者用空串占位都很常见。
+            // 留着的话下游还会再滤一次（见 `pickGreeting`），但那是一次
+            // 本可以不发生的兜底 —— 而且「候选里有几条空话」会体现在
+            // 概率上（抽中空的那次角色就一言不发）
+            alternateGreetings =
+                data.strList("alternate_greetings").map { it.trim() }.filter { it.isNotEmpty() },
             entries = entries.map { it.entry },
             warnings = buildWarnings(data, book, rawEntries, parsed.size),
         )
@@ -284,16 +298,9 @@ object CharacterCardParser {
         rawEntries: List<JsonElement>,
         keptEntries: Int,
     ): List<String> = buildList {
-        // 主开场白已经装进去了（见 [mapCard]），这里只说**备用**的那些。
-        // 卡里可以带好几条开场白让用户挑一条开局，本版只用主的那条 ——
-        // 挑开场白是个独立的功能（界面上得有地方选），不是「多读一个字段」
-        val greetings = (data["alternate_greetings"] as? JsonArray).orEmpty().size
-        if (greetings > 0) {
-            add(
-                "这张卡还带了 $greetings 条备用开场白，本版只用主开场白，" +
-                    "其余的没导进来。"
-            )
-        }
+        // 开场白不在这里提了：`first_mes` 和 `alternate_greetings` 现在**都**
+        // 装进来了（见 [mapCard]）。这条曾经是这里唯一一句「东西没导全」的话，
+        // 现在它不再成立 —— 留着会让用户以为丢了东西，然后去找卡的原作者
         if (data.str("system_prompt").isNotBlank() ||
             data.str("post_history_instructions").isNotBlank()
         ) {

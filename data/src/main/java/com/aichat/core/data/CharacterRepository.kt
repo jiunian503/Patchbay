@@ -45,6 +45,14 @@ data class CharacterDraft(
      * `first_mes` 只能落到这里，落进 [persona] 会让模型每轮重说一遍。
      */
     val firstMessage: String = "",
+    /**
+     * 备用开场白：新会话里和 [firstMessage] 一起当候选，随机挑一条说。
+     *
+     * 表单上是一个多行输入框（一行一条），不需要单独的结构 —— 这一列
+     * 只被「挑一条」消费，没有顺序语义（`alternate_greetings` 在原版卡里
+     * 就是个集合），所以 `List<String>` 就够，不必像 [entries] 那样有 id。
+     */
+    val alternateGreetings: List<String> = emptyList(),
     val entries: List<WorldBookEntryDraft> = emptyList(),
 )
 
@@ -90,6 +98,35 @@ class CharacterRepository(
         entries.listFor(characterId).map { it.toDomain() }
 
     /**
+     * 一个角色的开场白**候选**：主开场白（非空时）在前，备用在后。
+     *
+     * 返回候选而不是「该说的那一句」—— 抽哪一条是宿主层的事（`:domain` 的
+     * `pickGreeting`）。这里只负责把**两列**拼成同一个形态，调用方既不需要
+     * 知道开场白存在两个地方，也不需要看 `alternate_greetings_json` 这个
+     * 存储形状（那正是「序列化在 Repository 层手写」要挡住的东西）。
+     *
+     * 去空白 / 去重放在 `pickGreeting` 里做，这里不重复一遍 —— 两处都做的话，
+     * 将来改判据时必然只改一处。
+     */
+    suspend fun greetingsFor(characterId: String): List<String> {
+        val row = characters.get(characterId) ?: return emptyList()
+        return buildList {
+            row.firstMessage.takeIf { it.isNotBlank() }?.let(::add)
+            addAll(decodeGreetings(row.alternateGreetingsJson))
+        }
+    }
+
+    /**
+     * 只有备用开场白（不含主开场白），编辑页回填用。
+     *
+     * 和 [greetingsFor] 分开是因为**两边的用途不同**：注入侧要的是「可以说的
+     * 全部候选」，编辑页要的是「用户在备用那个框里写过的那些」—— 把主开场白
+     * 混进去回填，用户会在两个框里看到同一句话，然后删掉其中一个。
+     */
+    suspend fun alternateGreetingsFor(characterId: String): List<String> =
+        characters.get(characterId)?.let { decodeGreetings(it.alternateGreetingsJson) }.orEmpty()
+
+    /**
      * 新建或更新一张角色卡（含它的全部词条）。
      *
      * @return 角色 id（新建时是新生成的）。
@@ -121,6 +158,7 @@ class CharacterRepository(
                     description = draft.description.trim(),
                     persona = draft.persona.trim(),
                     firstMessage = draft.firstMessage.trim(),
+                    alternateGreetingsJson = encodeGreetings(draft.alternateGreetings),
                     createdAt = createdAt,
                     updatedAt = now,
                 )
@@ -180,8 +218,32 @@ class CharacterRepository(
     private fun decodeKeys(json: String): List<String> =
         runCatching { Json.decodeFromString(KEYS, json) }.getOrDefault(emptyList())
 
+    /**
+     * 存备用开场白。
+     *
+     * 空列表存成 `"[]"` 而不是空串 —— 写入侧只走这一条路，所以「空串 = 没有」
+     * 这个约定只对**老数据**有意义（v8 升上来的行 `DEFAULT ''`）。两边都能解，
+     * 见 [decodeGreetings]。
+     */
+    private fun encodeGreetings(greetings: List<String>): String =
+        JSON.encodeToString(
+            GREETINGS,
+            greetings.map { it.trim() }.filter { it.isNotEmpty() },
+        )
+
+    /**
+     * 解备用开场白。**坏数据返回空列表，不抛** —— 理由同 [decodeKeys]：
+     * 最坏后果是「这次没有备用开场白」，而不是「会话发不出消息」。
+     *
+     * 空串（老数据的 `DEFAULT ''`）也走这条路：`Json.decodeFromString` 对空串
+     * 会抛，被 `runCatching` 接住，返回空列表 —— 正好是想要的语义。
+     */
+    private fun decodeGreetings(json: String): List<String> =
+        runCatching { Json.decodeFromString(GREETINGS, json) }.getOrDefault(emptyList())
+
     companion object {
         private val KEYS = ListSerializer(String.serializer())
+        private val GREETINGS = ListSerializer(String.serializer())
         private val JSON = Json
     }
 }

@@ -4,6 +4,39 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
+ * v8 → v9：给 `character` 加「备用开场白」。
+ *
+ * ## 为什么是 JSON 列，不是子表
+ *
+ * 同 `world_book_entry.keys_json`（见 [WorldBookEntryEntity]）：整体读写、
+ * 没有「按某一条开场白查询」的需求。子表要多一次 join 和一套级联删除，
+ * 换来的能力用不上。
+ *
+ * ## 为什么不并进 `first_message`
+ *
+ * [MIGRATION_7_8] 加的那一列是**作者指定的**那一句（`first_mes`），
+ * 这一列是「另外还能这么说」（`alternate_greetings`）。分两列，
+ * 「只看主开场白」那条路径就一直是简单的 —— 理由同
+ * [CharacterEntity.alternateGreetingsJson]。
+ *
+ * ## NOT NULL 列必须给 DEFAULT
+ *
+ * 同 [MIGRATION_7_8]：SQLite 的 `ALTER TABLE ADD COLUMN` 对非空列要求
+ * 默认值。`''` = 没有备用开场白，这正是老数据的正确取值 —— v8 里的
+ * 角色卡压根没有这个字段。实体侧**没有**声明
+ * `@ColumnInfo(defaultValue = ...)`，所以 Room 校验迁移结果时不比对
+ * 这一列的默认值（理由见 [MIGRATION_1_2] 第 2 点）。
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `character` ADD COLUMN `alternate_greetings_json` TEXT NOT NULL DEFAULT ''"
+        )
+    }
+}
+
+/**
  * v7 → v8：给 `character` 加「开场白」。
  *
  * ## 为什么是角色卡上的一列，而不是消息表里的一条
