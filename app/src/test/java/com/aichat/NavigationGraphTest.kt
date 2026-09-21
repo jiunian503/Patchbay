@@ -89,7 +89,7 @@ class NavigationGraphTest {
     private fun statedCount(): Int? {
         val raw = STATED_COUNT.find(navigationFile.readText())?.groupValues?.get(1)
             ?: return null
-        return chineseNumber(raw)
+        return ChineseNumbers.parse(raw)
     }
 
     @Test
@@ -156,28 +156,7 @@ class NavigationGraphTest {
         /** 行首的 `entry<X>`。 */
         val ENTRY = Regex("""^entry<(\w+)>""")
 
-        /** KDoc 里那句「**N 个目的地**」。 */
-        val STATED_COUNT = Regex("""\*\*([一二三四五六七八九十]+)个目的地\*\*""")
-
-        /**
-         * 中文数字转整数，够这个项目用（一到九十九）。
-         *
-         * 只认 `一`…`九十九`：导航目的地到不了三位数，真到了也该改这句话的写法
-         * （写阿拉伯数字更好认），而不是把这个函数写复杂。
-         * 认不出来返回 `null`，调用方会以「找不到那句话」红掉 —— 不会静默放过。
-         */
-        fun chineseNumber(s: String): Int? {
-            val digits = mapOf(
-                '一' to 1, '二' to 2, '三' to 3, '四' to 4, '五' to 5,
-                '六' to 6, '七' to 7, '八' to 8, '九' to 9,
-            )
-            if (s == "十") return 10
-            val ten = s.indexOf('十')
-            if (ten < 0) return digits[s.singleOrNull()] ?: return null
-            val tens = if (ten == 0) 1 else digits[s[0]] ?: return null
-            val onesText = s.substring(ten + 1)
-            val ones = if (onesText.isEmpty()) 0 else digits[onesText.single()] ?: return null
-            return tens * 10 + ones
-        }
+        /** KDoc 里那句「**N 个目的地**」。数字串的写法由 [ChineseNumbers.PATTERN] 统一。 */
+        val STATED_COUNT = Regex("""\*\*(${ChineseNumbers.PATTERN})个目的地\*\*""")
     }
 }

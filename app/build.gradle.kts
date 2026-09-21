@@ -276,6 +276,33 @@ android {
             .withPathSensitivity(PathSensitivity.RELATIVE)
         it.inputs.file("$projectDir/src/main/java/com/aichat/Navigation.kt")
             .withPathSensitivity(PathSensitivity.RELATIVE)
+
+        // README 和所有模块的生产源码。
+        //
+        // `NetworkEgressTest` 要**读源码文本**：README 里那句「出网请求只有 N 种」、
+        // 以及代码里每一处 `OkHttpClient.Builder()` / `WebView(context)` ——
+        // 三处必须一致。为什么是「读文本」而不是反射，理由写在那条测试的 KDoc 里。
+        //
+        // ⚠️ **这两样都必须显式声明成输入，而且理由和上面几处又不一样。**
+        //
+        // - README **根本不在 `:app` 的编译输入里** —— 只改文档时，测试任务会被判
+        //   UP-TO-DATE 整个跳过，而「有人改了那句话里的数字」恰恰是它唯一要抓的场景。
+        // - 源码这棵树的理由是「**改注释不改变编译产物**」（和上面 `Navigation.kt`
+        //   那条一样）：扫描会把注释里提到的标记也数进来，所以注释也是它的输入。
+        //
+        // 源码用一棵 fileTree，而不是逐个模块写死：模块名单在 `settings.gradle.kts`
+        // 里，在这里再抄一份就会漂 —— 新加的模块里有出网点时扫描看不见，
+        // 而这条测试要证明的恰恰是「出网的口子只有这几个」。
+        it.systemProperty("patchbay.sourceRoot", rootProject.projectDir.absolutePath)
+        it.systemProperty("patchbay.readmeFile", rootProject.file("README.md").absolutePath)
+        it.inputs.file(rootProject.file("README.md"))
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        it.inputs.files(
+            rootProject.fileTree(rootProject.projectDir) {
+                include("*/src/main/**/*.kt")
+                exclude("**/build/**")
+            },
+        ).withPathSensitivity(PathSensitivity.RELATIVE)
       }
     }
 }
