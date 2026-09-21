@@ -46,6 +46,14 @@ data class ProviderListUiState(
     val longTermMemory: Boolean = AppSettings.DEFAULT_LONG_TERM_MEMORY,
 
     /**
+     * 模型能不能在这台设备上跑系统命令。见 [AppSettings.shellEnabled]。
+     *
+     * 初值取的是常量而不是写死的 `false` —— 默认值改了这里跟着改，
+     * 界面不会先渲染一帧错的。
+     */
+    val shellEnabled: Boolean = AppSettings.DEFAULT_SHELL_ENABLED,
+
+    /**
      * 联网搜索后端的显示名。**空串表示关着。**
      *
      * 存的是给人看的名字而不是枚举：这张卡片只需要回答「开着还是关着、
@@ -115,6 +123,8 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
                     items = items,
                     loading = false,
                     longTermMemory = container.settings.longTermMemory(),
+                    // 同上：同步读 SharedPreferences，这个开关也要在第一次组合时就是对的
+                    shellEnabled = container.settings.shellEnabled(),
                     // 读的是**同步**的 SharedPreferences，不是挂起接口 ——
                     // 这张卡片要在冷启动第一次组合时就显示对
                     webSearchLabel = WebSearchBackend
@@ -236,6 +246,24 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(longTermMemory = enabled) }
         viewModelScope.launch {
             container.setLongTermMemory(enabled)
+            refresh()
+        }
+    }
+
+    /**
+     * 切换「让 AI 跑命令」。
+     *
+     * 和 [setLongTermMemory] 一样先乐观地动，但**这里的落盘更关键**：
+     * 它决定 `run_command` 会不会被注册给模型。`container.setShellEnabled`
+     * 里是「先写设置、再 refresh」，所以关掉之后**下一轮对话**模型就看不到
+     * 那个工具了 —— 不是「等重启」。
+     *
+     * 反过来的方向也成立：打开之后模型立刻多一个工具，用户不用杀进程重开。
+     */
+    fun setShellEnabled(enabled: Boolean) {
+        _state.update { it.copy(shellEnabled = enabled) }
+        viewModelScope.launch {
+            container.setShellEnabled(enabled)
             refresh()
         }
     }

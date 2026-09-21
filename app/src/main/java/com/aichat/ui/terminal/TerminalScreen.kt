@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aichat.di.AppContainer
 import com.aichat.theme.Space
 import com.aichat.ui.common.PbCard
 import com.aichat.ui.common.PbIcons
@@ -71,8 +72,8 @@ import com.aichat.ui.common.PbScaffold
  * 点一下就填进输入框。
  */
 @Composable
-fun TerminalScreen(onBack: () -> Unit) {
-    val viewModel: TerminalViewModel = viewModel { TerminalViewModel() }
+fun TerminalScreen(container: AppContainer, onBack: () -> Unit) {
+    val viewModel: TerminalViewModel = viewModel { TerminalViewModel(container.shell) }
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     val running by viewModel.running.collectAsStateWithLifecycle()
 

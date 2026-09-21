@@ -51,21 +51,28 @@ object BuiltinTools {
      * （绝大多数用户不会去配搜索后端），但那个判断必须由调用方显式回答 ——
      * 默认给一个「永远返回未配置」的实现，等于允许调用方**忘记传**，
      * 而忘记传和「用户没配」在真机上长得一模一样。
+     *
+     * [shell] 也不给默认值，理由比上面两条更硬：忘了传的话，用户把设置里的
+     * 开关打开、模型那边**仍然**看不到 `run_command` —— 而那个症状和
+     * 「用户没打开开关」一模一样，同样没有任何报错。
      */
     fun registry(
         deviceInfo: DeviceInfoSource,
         search: ConversationSearch,
         webSearch: WebSearchSource,
         longTermMemory: Boolean = true,
-    ): ToolRegistry = SimpleToolRegistry(all(deviceInfo, search, webSearch, longTermMemory))
+        shell: ShellSource,
+    ): ToolRegistry =
+        SimpleToolRegistry(all(deviceInfo, search, webSearch, longTermMemory, shell))
 
     /**
      * 全部内置工具。**顺序即展示顺序，按「风险从低到高」排。**
      *
-     * ## 两个「不注册」的分支
+     * ## 三个「不注册」的分支
      *
      * [longTermMemory] 关掉时不注册 `search_history`；[webSearch] 没配好时
-     * 不注册 `search_web`。都是**不给**而不是「给了再在调用时返回拒绝」。
+     * 不注册 `search_web`；[shell] 没打开时不注册 `run_command`。都是**不给**
+     * 而不是「给了再在调用时返回拒绝」。
      *
      * 理由：工具定义本身就会让模型产生「我有这个能力」的预期，它可能先想好要查、
      * 再被拒，然后换个说法再试一次 —— 空结果返回 `error` 会引发反复重试，
@@ -74,6 +81,7 @@ object BuiltinTools {
      * 「没配好」的判断走的是 [WebSearchSource.configured]（同步、不查密钥）。
      * 密钥读不出来（设备恢复出厂）的情况由 `SearchWebTool` 在执行时报错兜住 ——
      * 那时工具在列表里、报错也说得清该去哪儿改，比工具凭空消失好。
+     * 「开没开」走的是 [ShellSource.enabled]，同样同步、同样不碰进程。
      *
      * ## 顺序
      *
@@ -82,13 +90,15 @@ object BuiltinTools {
      * 1. 纯本地计算（时间、算术、设备信息）—— 无副作用
      * 2. `search_history` —— 只读本地库，不外发
      * 3. `search_web` —— 对外请求，但**去向是用户定的**（只决定关键词）
-     * 4. `fetch_url` —— 对外请求，**去向是模型定的**，风险最高
+     * 4. `fetch_url` —— 对外请求，**去向是模型定的**
+     * 5. `run_command` —— **唯一能改用户数据的**（命令由模型写、用户逐次确认）
      */
     fun all(
         deviceInfo: DeviceInfoSource,
         search: ConversationSearch,
         webSearch: WebSearchSource,
         longTermMemory: Boolean = true,
+        shell: ShellSource,
     ): List<Tool> = buildList {
         add(CurrentTimeTool())
         add(CalculateTool())
@@ -96,5 +106,7 @@ object BuiltinTools {
         if (longTermMemory) add(SearchHistoryTool(search))
         if (webSearch.configured()) add(SearchWebTool(webSearch))
         add(FetchUrlTool())
+        // 排在最后 —— 它是唯一一个能改用户数据的工具，别的都只读
+        if (shell.enabled()) add(RunCommandTool(shell))
     }
 }

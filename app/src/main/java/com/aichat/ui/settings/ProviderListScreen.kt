@@ -231,6 +231,15 @@ fun ProviderListScreen(
                     onClick = onOpenTerminal,
                 )
             }
+            // 紧跟「终端」放，两者是同一个能力的两个使用者：上面那个是**你**敲，
+            // 这个开关是让**模型**也能敲。摆在一起，那句「只影响模型」才读得懂 ——
+            // 隔开的话用户很容易以为关掉这个连自己也不能敲了
+            item {
+                ShellCard(
+                    enabled = state.shellEnabled,
+                    onChange = viewModel::setShellEnabled,
+                )
+            }
 
             item { PbSectionLabel("服务商") }
 
@@ -484,6 +493,70 @@ private fun LongTermMemoryCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
         Text(
             text = "关掉只影响模型 —— 你自己在搜索里找历史还是可以的。" +
                 "开着的时候，模型检索到的内容会随下一次请求发给服务商。",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * 「让 AI 跑命令」开关。
+ *
+ * ## 为什么默认关，而且文案不能只写「让模型能跑命令」
+ *
+ * 打开它意味着**模型可以改这台设备上的东西** —— 它跑起来和这个 App 有
+ * 一样的权限。这是整个 App 里唯一一个「模型能写你的数据」的能力，
+ * 所以默认关着，而且那句话听起来像「多了一个功能」，实际是**交出去一份权限**。
+ * 文案要如实说清这一点，不能写得含糊。
+ *
+ * ## 为什么必须写「每次都会把命令给你看」
+ *
+ * 那是用户唯一的安全边界。不写的话两种人都吃亏：谨慎的用户会因为这个开关
+ * 而完全不敢打开（以为打开就等于放行），不小心的用户会以为不弹框 ——
+ * 两边都错。事实是两层都在：**开关决定「模型知不知道有这个能力」，
+ * 弹框决定「这一次跑不跑」**。
+ *
+ * ## 为什么要点名「终端不受影响」
+ *
+ * 这一页上面紧挨着就是「终端」那个入口。用户很容易把两者当成同一个东西的
+ * 两个开关 —— 于是关掉这个之后以为连自己敲命令也不能用了。它们是两个能力：
+ * 一个是给用户的，一个是给模型的，共用的只是底层怎么起进程。
+ */
+@Composable
+private fun ShellCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    PbCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                PbIcons.Terminal,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(Space.sm))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "让 AI 跑命令",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text =
+                        if (enabled) {
+                            "模型可以在这台设备上跑命令，把输出读回来。"
+                        } else {
+                            "模型不能跑命令。"
+                        },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onChange)
+        }
+        Spacer(Modifier.height(Space.sm))
+        Text(
+            text = "打开之后，模型跑命令和这个 App 有一样的权限 —— 包括读、改、删你的文件。" +
+                "每次执行前它都会把那条命令给你看，你点了「允许」才跑。" +
+                "这个开关只影响模型：上面那个「终端」是你自己敲的，不受它影响。",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

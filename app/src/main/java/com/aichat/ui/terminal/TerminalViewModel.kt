@@ -2,13 +2,11 @@ package com.aichat.ui.terminal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
+import com.aichat.system.SystemShell
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.concurrent.TimeUnit
 
 /**
  * 内置终端：**用户自己敲命令的地方**。
@@ -35,19 +33,22 @@ import java.util.concurrent.TimeUnit
  * 所以这里是**一条一条跑**的模式：输入一条、跑完、显示输出和退出码。
  * 想要交互式就得上 JNI，那是另一件事（Termux 走的就是 JNI）。
  *
- * ## 两个必须做的防护
+ * ## 起进程那段代码不在这里
  *
- * 1. **关掉子进程的 stdin**（`outputStream.close()`）。不关的话 `cat`、`read`
- *    这类等 stdin 的命令会**永久挂住** —— 而且超时也救不了，因为它不是在算，
- *    是在等。
- * 2. **超时 + 强制杀**（[TIMEOUT_SECONDS]）。`top`、`sleep 1000` 不会自己停。
+ * 在 [SystemShell] —— 那三个坑（关掉子进程的 stdin、输出另起线程读、超时强杀）
+ * 和 `run_command` 工具**共用同一份实现**。写两遍的话，修了 A 忘了 B 不会有
+ * 任何报错，只会在另一条路径上偶发。
  *
- * ## 输出上限
+ * 这个类只负责界面要的那部分：把每条命令和它的结果攒成一个列表、管住
+ * 「一次只跑一条」、以及那个「停止」按钮。
  *
- * [MAX_OUTPUT_CHARS] 是硬上限：`yes` 或者 `find /` 能吐几百 MB，不设上限就是 OOM。
- * 超了就截断，并在界面上说明截断了 —— 悄悄吞掉后半截比报错更糟。
+ * ## 这个页面**不看**「让 AI 跑命令」那个开关
+ *
+ * 那个开关（`AppSettings.shellEnabled`）管的是**模型**能不能跑命令。
+ * 用户自己敲命令不需要谁的许可，所以这里不读它 —— 关了那个开关，
+ * 这个页面照常用。
  */
-class TerminalViewModel : ViewModel() {
+class TerminalViewModel(private val shell: SystemShell) : ViewModel() {
 
     /** 一条「命令 + 它的结果」。 */
     data class Entry(
@@ -82,7 +83,10 @@ class TerminalViewModel : ViewModel() {
         _running.value = true
 
         viewModelScope.launch {
-            val done = withContext(Dispatchers.IO) { execute(command) }
+            // 起进程、超时、截断都在 SystemShell 里；这里只是把刚起来的那个进程
+            // 留下来，好让「停止」按钮有东西可杀
+            val done = shell.run(command) { current = it }
+            current = null
             _entries.value =
                 _entries.value.map { entry ->
                     if (entry.id != id) {
@@ -112,76 +116,5 @@ class TerminalViewModel : ViewModel() {
     /** 页面出栈时别留一个跑到一半的进程。 */
     override fun onCleared() {
         cancel()
-    }
-
-    private data class Done(
-        val output: String,
-        val exitCode: Int?,
-        val timedOut: Boolean,
-        val truncated: Boolean,
-    )
-
-    private fun execute(command: String): Done =
-        runCatching {
-            val process =
-                ProcessBuilder("/system/bin/sh", "-c", command)
-                    .redirectErrorStream(true)
-                    .start()
-            current = process
-
-            // ⚠️ 必须关：见类 KDoc 第 1 条防护
-            runCatching { process.outputStream.close() }
-
-            val buffer = StringBuilder()
-            var truncated = false
-
-            // 输出必须**另起一条线程**读：`readText()` 会阻塞到 EOF，
-            // 放在主流程里的话，下面那句 `waitFor(超时)` 根本没机会执行 ——
-            // 命令一 hang 就永远读不完，超时形同虚设
-            val reader =
-                Thread {
-                    runCatching {
-                        process.inputStream.bufferedReader().forEachLine { line ->
-                            synchronized(buffer) {
-                                if (buffer.length < MAX_OUTPUT_CHARS) {
-                                    buffer.appendLine(line)
-                                } else {
-                                    truncated = true
-                                }
-                            }
-                        }
-                    }
-                }
-            reader.isDaemon = true
-            reader.start()
-
-            val finished = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            if (!finished) {
-                runCatching { process.destroyForcibly() }
-                runCatching { process.waitFor(2, TimeUnit.SECONDS) }
-            }
-            // 进程死了管道就关了，读线程拿到 EOF 会自己退出；这里只是等它收尾
-            reader.join(1_000)
-
-            val text = synchronized(buffer) { buffer.toString() }
-            Done(
-                output = text.trimEnd('\n'),
-                exitCode = if (finished) process.exitValue() else null,
-                timedOut = !finished,
-                truncated = truncated,
-            )
-        }.getOrElse {
-            // 起不来（比如系统里根本没有 /system/bin/sh —— 理论上不会）
-            Done(
-                output = "${it.javaClass.simpleName}: ${it.message}",
-                exitCode = null,
-                timedOut = false,
-                truncated = false,
-            )
-        }.also { current = null }
-
-    private companion object {
-        const val TIMEOUT_SECONDS = 15L
-        const val MAX_OUTPUT_CHARS = 32_768
     }
 }

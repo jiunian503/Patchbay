@@ -38,6 +38,7 @@ import com.aichat.plugin.workspace.PluginWorkspaces
 import com.aichat.sandbox.QuickJsSandboxRuntime
 import com.aichat.settings.AppSettings
 import com.aichat.settings.SettingsWebSearchSource
+import com.aichat.system.SystemShell
 import com.aichat.tools.BuiltinTools
 import com.aichat.tools.SearchWebTool
 import com.aichat.tools.WebSearchBackend
@@ -271,17 +272,34 @@ class AppContainer(context: Context) : ChatDeps {
     }
 
     /**
+     * 在这台设备上跑命令的实现。**终端页和 `run_command` 工具共用这一个实例。**
+     *
+     * 两个使用者、一份实现 —— 三个坑（关 stdin、输出另起线程读、超时强杀）
+     * 只写一遍，理由见 [SystemShell] 的 KDoc。
+     *
+     * 它同时是「开关怎么读」和「命令怎么跑」的唯一出处（[ShellSource.enabled]
+     * 与 `run` 在同一个对象上），所以不会出现「开关读的是 A、执行走的是 B」
+     * 那种**没有任何运行时症状**的错配：用户以为关掉了，模型照样能跑。
+     *
+     * 只有装配路径会问 [SystemShell.enabled]（同步读设置）—— 终端页不看这个开关，
+     * 用户自己敲命令不需要谁的许可。
+     */
+    val shell: SystemShell by lazy { SystemShell(settings) }
+
+    /**
      * 当前该注册哪些内置工具。
      *
-     * 每次装配时重新求值 —— 用户切换长期记忆开关后调一次 [setLongTermMemory]，
-     * 下一次对话的**第一轮**就拿到新的工具集（正在跑的那一轮不会中途换，
-     * 因为引擎只在每轮开始时读一次 `definitions()`）。
+     * 每次装配时重新求值 —— 用户切换长期记忆 / 让 AI 跑命令开关后调一次
+     * [setLongTermMemory] / [setShellEnabled]，下一次对话的**第一轮**就拿到
+     * 新的工具集（正在跑的那一轮不会中途换，因为引擎只在每轮开始时读一次
+     * `definitions()`）。
      */
     private fun activeBuiltins(): List<Tool> = BuiltinTools.all(
         deviceInfo = AndroidDeviceInfo(appContext),
         search = search,
         webSearch = webSearch,
         longTermMemory = settings.longTermMemory(),
+        shell = shell,
     )
 
     /**
@@ -347,6 +365,30 @@ class AppContainer(context: Context) : ChatDeps {
      */
     suspend fun setLongTermMemory(enabled: Boolean) {
         settings.setLongTermMemory(enabled)
+        tools.refresh()
+    }
+
+    /**
+     * 切换「让 AI 跑命令」，并**立刻**重新装配工具。
+     *
+     * ## 为什么必须 refresh
+     *
+     * `run_command` 在不在工具列表里，取决于这个开关（见 `BuiltinTools.all`
+     * 里的 `if (shell.enabled())`）。不 refresh 的话，用户刚把开关打开、
+     * 回到对话里让模型看一眼设备上有什么，模型那边根本看不到这个工具 ——
+     * 而它会表现得像「这个 App 做不到」，用户不可能想到要杀进程重开。
+     *
+     * **关掉的那个方向更要紧**：用户关掉它是为了**停止**模型跑命令。
+     * 不 refresh 的话开关看起来关上了，模型下一轮照样能跑 ——
+     * 而「关掉就真的不能跑」正是这个开关唯一要保证的事。
+     *
+     * ## 顺序
+     *
+     * 和 [setLongTermMemory] 一样：先写设置、再 refresh。refresh 里会重新
+     * 求值 [activeBuiltins]，读的就是刚写进去的那个值。
+     */
+    suspend fun setShellEnabled(enabled: Boolean) {
+        settings.setShellEnabled(enabled)
         tools.refresh()
     }
 

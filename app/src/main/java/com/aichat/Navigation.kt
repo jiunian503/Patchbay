@@ -332,10 +332,14 @@ fun MainNavigation(container: AppContainer) {
                 }
 
                 entry<Terminal> {
-                    // 这一页**不碰 `container`** —— 它跑的是系统自带的 `sh`，
-                    // 不需要数据库、不需要设置、不需要任何注入的依赖。
-                    // 后面要是给它加了「让 AI 也用它」，那才需要在这里接上工具系统。
-                    TerminalScreen(onBack = { popBackStack(backStack) })
+                    // 这一页要 `container` 只有一个原因：命令怎么跑这件事
+                    // （`SystemShell`）和 `run_command` 工具**共用同一份实现**，
+                    // 那个实例挂在容器上。它仍然不碰数据库、不碰设置 ——
+                    // 页面自己**不看**「让 AI 跑命令」那个开关，那是给模型的。
+                    TerminalScreen(
+                        container = container,
+                        onBack = { popBackStack(backStack) },
+                    )
                 }
 
                 entry<WebSearchSettings> {

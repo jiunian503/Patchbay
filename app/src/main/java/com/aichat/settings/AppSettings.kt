@@ -18,8 +18,9 @@ import com.aichat.tools.WebSearchBackend
  * DataStore 是挂起 API，读一个布尔值要起协程。这里的调用点
  * （`AppContainer.activeBuiltins()`）在**冷启动的装配路径上**，
  * 而工具注册表必须在第一次对话之前就绪 —— 为它引入一条异步链路，
- * 换来的只是「更现代」，没有实际收益。这个文件只有一个布尔值，
- * 不存在 DataStore 要解决的那些问题（多写者、一致性、类型安全）。
+ * 换来的只是「更现代」，没有实际收益。这个文件里存的全是**标量**
+ * （几个开关、几段 id 字符串），不存在 DataStore 要解决的那些问题
+ * （多写者、一致性、类型安全）。
  *
  * ## 默认值：**开**
  *
@@ -48,6 +49,43 @@ class AppSettings(context: Context) {
 
     fun setLongTermMemory(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_LONG_TERM_MEMORY, enabled) }
+    }
+
+    /**
+     * 模型能不能在这台设备上跑系统命令（`run_command` 工具）。
+     *
+     * ## 默认值：**关** —— 和 [longTermMemory] 相反，而且是刻意的
+     *
+     * 类 KDoc 里那条「默认值的争论，两边说的其实是不同的事」在这儿答案翻了个面：
+     *
+     * - [longTermMemory] 默认开，因为它默认关的代价是「功能等于不存在」，
+     *   而它带来的隐私面可以随时关掉、后果也写在设置页上
+     * - 这个默认关，因为默认开的代价是**模型可以改你的文件** ——
+     *   一个从没进过设置页的用户会在不知情的情况下把设备交出去
+     *
+     * 而且它的补救路径和长期记忆**不对称**：长期记忆用户随时能关、关掉就完事；
+     * 这个一旦跑了一条 `rm -rf`，没有任何东西能撤销。所以「用户没选择时的安全」
+     * 这次必须赢。
+     *
+     * ## 它唯一的安全边界是「弹框」，所以两层缺一不可
+     *
+     * `RunCommandTool.requiresConfirmation` 是 true —— 每次执行前用户都会
+     * 看到那条命令。但**开关关着的时候连弹框都不会有**：工具根本不注册给模型
+     * （见 `BuiltinTools.all` 的 `if (shell.enabled())`）。
+     *
+     * 两层管的是两件事：开关决定「模型知不知道有这个能力」，弹框决定
+     * 「这一次跑不跑」。少了第一层，用户会被一堆弹框淹没然后学会闭眼点「允许」；
+     * 少了第二层，一条写错的命令直接就跑了。
+     *
+     * ## 关掉只影响**模型**
+     *
+     * 设置页里的终端不受影响 —— 那是用户自己敲的，和这个开关是两件事。
+     * 所以终端页**不看这个开关**（`SystemShell` 的 `enabled()` 只被装配路径问）。
+     */
+    fun shellEnabled(): Boolean = prefs.getBoolean(KEY_SHELL_ENABLED, DEFAULT_SHELL_ENABLED)
+
+    fun setShellEnabled(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_SHELL_ENABLED, enabled) }
     }
 
     /**
@@ -215,6 +253,20 @@ class AppSettings(context: Context) {
         private const val KEY_LONG_TERM_MEMORY = "long_term_memory"
 
         const val DEFAULT_LONG_TERM_MEMORY = true
+
+        /**
+         * 「让 AI 跑命令」。
+         *
+         * 默认**关**，理由见 [shellEnabled] 的 KDoc —— 一句话：打开它的代价是
+         * 「模型能改你的文件」，而这个代价不可撤销，所以「用户没选择时的安全」赢。
+         *
+         * 键名写 `shell_enabled` 而不是 `run_command_enabled`：开关管的是
+         * **能力**（这台设备上能不能跑命令），工具名是那件能力的当前实现，
+         * 将来换名字不该让老设置失效。
+         */
+        private const val KEY_SHELL_ENABLED = "shell_enabled"
+
+        const val DEFAULT_SHELL_ENABLED = false
 
         private const val KEY_LAST_CONVERSATION = "last_conversation_id"
 

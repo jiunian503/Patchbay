@@ -58,9 +58,29 @@ class BuiltinToolsTest {
             WebSearchConfig(WebSearchBackend.SEARXNG, "https://searx.example.com")
     }
 
-    private val registry: ToolRegistry = BuiltinTools.registry(deviceInfo, search, webSearch)
+    /**
+     * 「让 AI 跑命令」开着。
+     *
+     * 这个类不关心命令怎么跑（那是 `RunCommandToolTest` 和 `SystemShell` 的事），
+     * 所以假实现直接返回一个空结果 —— **一个进程都不起**。
+     */
+    private val shellOn = object : ShellSource {
+        override fun enabled() = true
+        override suspend fun run(command: String): ShellOutcome = ShellOutcome("", exitCode = 0)
+    }
 
-    private val tools: List<Tool> = BuiltinTools.all(deviceInfo, search, webSearch)
+    /** 用户在设置里把它关着。**这是出厂状态。** */
+    private val shellOff = object : ShellSource {
+        override fun enabled() = false
+        override suspend fun run(command: String): ShellOutcome =
+            throw AssertionError("关着的时候不该有人调用它")
+    }
+
+    private val registry: ToolRegistry =
+        BuiltinTools.registry(deviceInfo, search, webSearch, shell = shellOn)
+
+    private val tools: List<Tool> =
+        BuiltinTools.all(deviceInfo, search, webSearch, shell = shellOn)
 
     // ---------- 注册表 ----------
 
@@ -294,7 +314,8 @@ class BuiltinToolsTest {
      */
     @Test
     fun `长期记忆关掉时模型看不到历史检索工具`() {
-        val off = BuiltinTools.all(deviceInfo, search, webSearch, longTermMemory = false)
+        val off =
+            BuiltinTools.all(deviceInfo, search, webSearch, longTermMemory = false, shell = shellOn)
         val names = off.map { it.definition.name }
 
         assertFalse("关掉长期记忆后模型仍能看到 search_history", SearchHistoryTool.NAME in names)
@@ -309,7 +330,8 @@ class BuiltinToolsTest {
 
     @Test
     fun `长期记忆开着时历史检索工具在列表里`() {
-        val on = BuiltinTools.all(deviceInfo, search, webSearch, longTermMemory = true)
+        val on =
+            BuiltinTools.all(deviceInfo, search, webSearch, longTermMemory = true, shell = shellOn)
         assertTrue(SearchHistoryTool.NAME in on.map { it.definition.name })
     }
 
@@ -317,7 +339,9 @@ class BuiltinToolsTest {
 
     @Test
     fun `没配搜索后端时模型看不到搜索工具`() {
-        val names = BuiltinTools.all(deviceInfo, search, noWebSearch).map { it.definition.name }
+        val names =
+            BuiltinTools.all(deviceInfo, search, noWebSearch, shell = shellOn)
+                .map { it.definition.name }
 
         assertFalse("没配后端却注册了 search_web", SearchWebTool.NAME in names)
         // 同上：不能只断言「没有」，否则「列表整个空了」也会通过
@@ -326,7 +350,9 @@ class BuiltinToolsTest {
 
     @Test
     fun `配好搜索后端时模型能看到搜索工具`() {
-        val names = BuiltinTools.all(deviceInfo, search, webSearch).map { it.definition.name }
+        val names =
+            BuiltinTools.all(deviceInfo, search, webSearch, shell = shellOn)
+                .map { it.definition.name }
         assertTrue(SearchWebTool.NAME in names)
     }
 
@@ -340,7 +366,9 @@ class BuiltinToolsTest {
      */
     @Test
     fun `搜索工具排在抓网页工具前面`() {
-        val names = BuiltinTools.all(deviceInfo, search, webSearch).map { it.definition.name }
+        val names =
+            BuiltinTools.all(deviceInfo, search, webSearch, shell = shellOn)
+                .map { it.definition.name }
         assertTrue(
             "search_web 应该排在 fetch_url 前面，实际顺序：$names",
             names.indexOf(SearchWebTool.NAME) < names.indexOf(FetchUrlTool.NAME),
@@ -360,9 +388,68 @@ class BuiltinToolsTest {
         assertFalse(tool.requiresConfirmation)
     }
 
+    // ---------- 「让 AI 跑命令」的注册条件 ----------
+
+    /**
+     * 关着的时候模型**完全看不到**这个工具。
+     *
+     * 「不注册」而不是「注册了、调用时返回『用户关掉了』」：理由和上面两条一样，
+     * 但后果更重 —— 这个工具是唯一一个能改用户数据的。工具定义本身就等于
+     * 告诉模型「你可以在这台设备上跑命令」，而它一旦开始规划，被拒之后
+     * 会换个写法再试，用户就会连着看到几个弹框。
+     */
+    @Test
+    fun `关掉让 AI 跑命令时模型看不到执行命令的工具`() {
+        val names =
+            BuiltinTools.all(deviceInfo, search, webSearch, shell = shellOff)
+                .map { it.definition.name }
+
+        assertFalse("开关关着却注册了 run_command", RunCommandTool.NAME in names)
+
+        // 不能只断言「没有」：一个把列表整个清空的 bug 也会让上面那条通过
+        assertTrue(FetchUrlTool.NAME in names)
+        assertTrue(CurrentTimeTool.NAME in names)
+    }
+
+    @Test
+    fun `打开时模型能看到执行命令的工具`() {
+        assertTrue(RunCommandTool.NAME in tools.map { it.definition.name })
+    }
+
+    /**
+     * 它必须排在**最后**。
+     *
+     * `BuiltinTools.all` 的顺序是「风险从低到高」，而它是唯一一个能改用户
+     * 数据的：模型倾向于先试排在前面的工具，把它放最后，等于让它在
+     * 「读一读就能回答」的场合根本轮不到出场。
+     */
+    @Test
+    fun `执行命令的工具排在最后`() {
+        val names = tools.map { it.definition.name }
+
+        assertEquals(
+            "run_command 应该排在最后，实际顺序：$names",
+            RunCommandTool.NAME,
+            names.last(),
+        )
+        assertTrue(names.indexOf(RunCommandTool.NAME) > names.indexOf(FetchUrlTool.NAME))
+    }
+
+    /**
+     * 它是这个 App 里唯一一个**会改用户数据**的工具，必须逐次确认。
+     *
+     * 这条断言守的是「分类被顺手改掉」：`requiresConfirmation` 默认是 false，
+     * 谁要是按「和 fetch_url 一样都是外部动作」的思路统一处理，就等于默认放行。
+     */
+    @Test
+    fun `执行命令的工具需要用户确认`() {
+        val tool = tools.first { it.definition.name == RunCommandTool.NAME }
+        assertTrue("run_command 必须逐次确认 —— 命令是模型写的，它能删用户的东西", tool.requiresConfirmation)
+    }
+
     @Test
     fun `注册表可以安全地重复构建`() {
-        val again = BuiltinTools.registry(deviceInfo, search, webSearch)
+        val again = BuiltinTools.registry(deviceInfo, search, webSearch, shell = shellOn)
         assertEquals(
             registry.definitions().map { it.name }.sorted(),
             again.definitions().map { it.name }.sorted(),

@@ -30,6 +30,7 @@ Room 写入 + 网络」这一整条链。
 | `time` | `get_current_time()` | 无参工具 + 真实时区 |
 | `device` | `device_info()` | 需要 Android 能力的工具 |
 | `fetch` | `fetch_url(本服务端的 /hello)` | **需要用户确认**的工具 → 弹框 |
+| `shell` | `run_command(echo + getprop)` | **需要用户确认**、而且**唯一能改用户数据**的工具 —— 默认关着，先在设置里打开 |
 | `geo` | `geocode_city("Shanghai")` | **插件工具**（装了内置天气示例之后才有）→ 真发一次外网请求 |
 | `history` | `search_history("北京")` | **历史检索工具** → 真查一次设备本地数据库（Hermes 第三层记忆） |
 | `web` / `search` | `search_web("kotlin coroutines")` | **联网搜索** → 真出网抓一次 `cn.bing.com` 的结果页 |
@@ -400,6 +401,20 @@ class Handler(BaseHTTPRequestHandler):
             # query 用英文，理由同 `geo` —— `input text` 打不了中文，
             # 手敲复现时不该多一道题。
             return "search_web", '{"query": "kotlin coroutines"}'
+        if "shell" in last_user:
+            # 内置工具里唯一一个**能改用户数据**的：`run_command`。
+            # 它默认**关着**（设置 → 集成 → 让 AI 跑命令），所以这条路径
+            # 第一件要验的其实是反向的事：开关关着时上面那行日志里的
+            # tools 列表里**不该有** `run_command`。
+            #
+            # 命令刻意是**两条**用 && 连起来：一条给固定标记，一条取设备上的
+            # 真值（Android 版本号）。只回显固定标记的话，「工具真的跑了」和
+            # 「客户端把参数原样回显了」这两种情况分不出来 —— 而那正是
+            # 这条验收要证明的东西。
+            return (
+                "run_command",
+                '{"command": "echo run_command_ok && getprop ro.build.version.release"}',
+            )
         # 默认给一个**不存在**的工具，用来演错误路径。
         #
         # 注意：装上天气插件之后 `get_weather` 就**存在**了 —— 这条

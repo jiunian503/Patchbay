@@ -91,12 +91,34 @@ class TableMatchesCodeTest(unittest.TestCase):
         self.assertEqual("no_such_tool_zzz", actual)
 
     def test_代码能返回的每个工具名都在文档里(self):
-        """反向查：`_pick_tool` 里出现了一个文档没写的工具，就是漏了一条路径。"""
+        """反向查：`_pick_tool` 里出现了一个文档没写的工具，就是漏了一条路径。
+
+        ## 为什么不能只写一条正则就完事
+
+        正则只认得出它见过的那种写法。这条原来写的是
+        `return\\s+"(\\w+)",` —— 于是用 `return (` 换行写的分支会被**静默漏掉**：
+        守卫退化成「没检查」，而它看起来仍然是绿的。
+
+        这不是假想：加 `run_command`（`shell` 那条）时就是换行写的，测试照绿。
+
+        所以这里多断一条：`_pick_tool` 里**每个** return 都必须被正则吃到。
+        数量对不上就红 —— 换个写法就得来改这里，而不是悄悄漏检。
+        """
         documented = {tool for _k, tool in doc_table()}
         source = SERVER.read_text(encoding="utf-8")
-        body = source.split("def _pick_tool")[1]
-        returned = set(re.findall(r'return\s+"(\w+)",', body))
+        # 只取 `_pick_tool` 那一段：到下一个分节注释为止（否则会数进别的方法的 return）
+        body = source.split("def _pick_tool")[1].split("\n    # ----")[0]
+
+        matches = re.findall(r'return\s*\(?\s*"(\w+)"', body)
+        returned = set(matches)
+
         self.assertTrue(returned, "没解出任何 return —— `_pick_tool` 的写法变了？")
+        self.assertEqual(
+            body.count("return"),
+            len(matches),
+            "`_pick_tool` 里有 return 没被这条守卫认出来。换个写法就要顺手改这里的正则，"
+            "否则那个分支等于没被检查 —— 而这条测试仍然是绿的",
+        )
         self.assertEqual(
             set(),
             returned - documented,
