@@ -1,6 +1,48 @@
 package com.aichat.domain.io
 
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
+
+/** [readCappedBytes] 的结果。和 [CappedRead] 同形，只是装的是字节。 */
+sealed interface CappedBytes {
+    /**
+     * **刻意不是 `data class`**：它装的数组用 `equals` 比的是**引用**，
+     * 而 `data class` 会生成一个看起来能用、实际几乎永远返回 `false` 的
+     * `equals` —— 那是比没有更糟的误导。要比内容请用 `contentEquals`。
+     */
+    class Ok(val bytes: ByteArray) : CappedBytes
+
+    data object TooLarge : CappedBytes
+}
+
+/**
+ * 读一个输入流，但**最多**读 [maxBytes] 个字节。
+ *
+ * ## 为什么不复用 [readCapped]
+ *
+ * 那个返回 `String` —— 它走的是字符流，会把无效的 UTF-8 字节替换成 `�`。
+ * 这对「读一份 JSON 清单」无所谓（清单本来就该是文本），但对**二进制**是致命的：
+ * 一张 PNG 被替换掉几个字节之后内容就变了，而报出来的错会是「这不是有效的
+ * 角色卡」—— 指不到「是我们自己读坏的」这个真原因。
+ *
+ * ## 「先判再拼」在这里同样重要
+ *
+ * 同 [readCapped]：必须在 `write` **之前**确认这一块会不会超限。否则超限那一刻
+ * 整个流已经进内存了，而这条上限防的正是 OOM。有用例钉住「提前停手」。
+ */
+fun readCappedBytes(input: InputStream, maxBytes: Int): CappedBytes {
+    require(maxBytes >= 0) { "maxBytes 不能为负数，收到 $maxBytes" }
+
+    val out = ByteArrayOutputStream()
+    val buffer = ByteArray(8 * 1024)
+    while (true) {
+        val n = input.read(buffer)
+        if (n < 0) return CappedBytes.Ok(out.toByteArray())
+        // 先判再拼，理由同上
+        if (out.size() + n > maxBytes) return CappedBytes.TooLarge
+        out.write(buffer, 0, n)
+    }
+}
 
 /** [readCapped] 的结果。三态而不是可空，因为「太大」和「读到了空内容」要区别对待。 */
 sealed interface CappedRead {

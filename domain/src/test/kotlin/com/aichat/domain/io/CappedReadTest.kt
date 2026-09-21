@@ -2,6 +2,7 @@ package com.aichat.domain.io
 
 import java.io.ByteArrayInputStream
 import java.io.InputStream
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -110,5 +111,48 @@ class CappedReadTest {
     @Test
     fun `负上限直接失败`() {
         assertThrows(IllegalArgumentException::class.java) { read("x", -1) }
+    }
+
+    // ---- 字节版：给「导入角色卡」用 ----
+
+    private fun readBytes(bytes: ByteArray, maxBytes: Int) =
+        readCappedBytes(ByteArrayInputStream(bytes), maxBytes)
+
+    @Test
+    fun `字节版 小文件完整读出来`() {
+        val bytes = byteArrayOf(1, 2, 3, 4, 5)
+        assertArrayEquals(bytes, (readBytes(bytes, 1024) as CappedBytes.Ok).bytes)
+    }
+
+    @Test
+    fun `字节版 二进制字节不会被改掉`() {
+        // 这条是字节版存在的**唯一理由**：字符版会把无效的 UTF-8 字节换成 `�`，
+        // 于是 PNG 的字节流被改写，而报出来的错却指向「这不是有效的角色卡」
+        val bytes = byteArrayOf(
+            0x89.toByte(), 0x50, 0x00, 0xFF.toByte(), 0x80.toByte(), 0xFE.toByte(),
+        )
+        assertArrayEquals(bytes, (readBytes(bytes, 1024) as CappedBytes.Ok).bytes)
+    }
+
+    @Test
+    fun `字节版 刚好等于上限可以过 多一个字节就报太大`() {
+        val bytes = ByteArray(64) { 1 }
+        assertTrue(readBytes(bytes, 64) is CappedBytes.Ok)
+        assertEquals(CappedBytes.TooLarge, readBytes(bytes, 63))
+    }
+
+    @Test
+    fun `字节版 超限时提前停手 不会把整个流读完`() {
+        val stream = CountingStream(total = 64 * 1024 * 1024)
+        assertEquals(CappedBytes.TooLarge, readCappedBytes(stream, 1024))
+        assertTrue(
+            "只该读几千字节就停手，实际读了 ${stream.consumed} 字节",
+            stream.consumed < 1024 * 1024,
+        )
+    }
+
+    @Test
+    fun `字节版 负上限直接失败`() {
+        assertThrows(IllegalArgumentException::class.java) { readBytes(ByteArray(1), -1) }
     }
 }
