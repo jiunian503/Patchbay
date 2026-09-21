@@ -1304,13 +1304,18 @@ private fun SetupHint(
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Text(
+                // ⚠️ 这里**不能**说「不会经过任何服务器」—— 那句话和事实相反：
+                // Key 会作为 `Authorization` 头发往用户自己填的那个地址
+                // （`OpenAiChatClient` 里那一处）。想表达的其实是「**没有中转**」，
+                // 而唯一说得准的说法是**目的地**：只发往你填的地址。
+                // 判据在 `PrivacyCopyTest` 里守着。
                 text =
                     if (noneAtAll) {
                         "填一个 OpenAI 兼容的接口地址和你的 API Key 就能开始。" +
-                            "Key 只存在这台设备上，不会经过任何服务器。"
+                            "Key 只存在这台设备上，请求直接从这台设备发往你填的地址。"
                     } else {
                         "没有 Key 就发不出请求。Key 只存在这台设备上，" +
-                            "不会经过任何服务器。"
+                            "请求直接从这台设备发往你填的地址。"
                     },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,

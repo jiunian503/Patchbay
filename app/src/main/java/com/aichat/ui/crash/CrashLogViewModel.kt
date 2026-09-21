@@ -14,6 +14,16 @@ import kotlinx.coroutines.withContext
 
 data class CrashLogUiState(
     val records: List<CrashRecord> = emptyList(),
+
+    /**
+     * 目录里有几份文件**没能显示出来**（见 `CrashStore.skippedCount`）。
+     *
+     * 只有 [records] 为空时它才影响界面，而那时它是**唯一**能区分「真的没崩过」
+     * 和「有记录但读不出来」的东西 —— 少了它，空状态只能说一句「说明它还没崩过」，
+     * 而那对后一种情况是句反话。
+     */
+    val skipped: Int = 0,
+
     val loading: Boolean = true,
 
     /**
@@ -52,8 +62,12 @@ class CrashLogViewModel(private val container: AppContainer) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
-            val records = withContext(Dispatchers.IO) { container.crashes.list() }
-            _state.update { it.copy(records = records, loading = false) }
+            // 两个都要读。`skippedCount()` 内部会再扫一遍目录，代价有界
+            // （最多 5 份 + 少量杂物），换来的是空状态能说准话。
+            val (records, skipped) = withContext(Dispatchers.IO) {
+                container.crashes.list() to container.crashes.skippedCount()
+            }
+            _state.update { it.copy(records = records, skipped = skipped, loading = false) }
         }
     }
 
@@ -63,11 +77,17 @@ class CrashLogViewModel(private val container: AppContainer) : ViewModel() {
      * 清完**直接把界面清空**而不是重新读一遍：读回来必然还是空的，
      * 多一次磁盘往返只为了让界面晚一帧动。真的没删掉的话（比如文件被占），
      * 下次进这一页 `refresh()` 会把它们照实显示出来。
+     *
+     * ⚠️ [CrashLogUiState.skipped] 要跟着归零 —— `CrashStore.clear()` 删的是
+     * 目录里**所有**文件（含认不出的那些），不归零的话界面会一直说
+     * 「有 N 份没能显示出来」，而它们已经没了。
      */
     fun clear() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { container.crashes.clear() }
-            _state.update { it.copy(records = emptyList(), clearedTick = it.clearedTick + 1) }
+            _state.update {
+                it.copy(records = emptyList(), skipped = 0, clearedTick = it.clearedTick + 1)
+            }
         }
     }
 }

@@ -232,6 +232,32 @@ class CrashStoreTest {
         assertEquals(0, store(dir).list().size)
     }
 
+    @Test
+    fun `没能显示出来的文件会被数出来`() {
+        // 这一条守的是**空状态的措辞**：列表为空时，「它还没崩过」和
+        // 「有东西但读不出来」是两句不同的话，而界面只有靠这个数才分得开。
+        val dir = File(tmp.root, "crash").apply { mkdirs() }
+        File(dir, "crash-1.txt").writeText("时间：x\n\njava.lang.RuntimeException: 能读")
+        File(dir, "notes.txt").writeText("不是我们的")
+        File(dir, "crash-abc.txt").writeText("时间戳不是数字")
+        File(dir, "crash-2.txt").writeText("x".repeat(CrashStore.MAX_BYTES + 2048))
+        // 同名目录：既不算「能显示」，也不算「没能显示」—— 它压根不是文件
+        File(dir, "crash-400.txt").mkdirs()
+
+        val store = store(dir)
+        assertEquals(1, store.list().size)
+        assertEquals(3, store.skippedCount())
+    }
+
+    @Test
+    fun `目录里一份文件都没有时不算跳过`() {
+        // 这一半才是「它还没崩过」—— 上面那条和这条必须给出不同的数
+        val dir = File(tmp.root, "crash").apply { mkdirs() }
+
+        assertTrue(store(dir).list().isEmpty())
+        assertEquals(0, store(dir).skippedCount())
+    }
+
     // ------------------------------------------------------------ 清除
 
     @Test

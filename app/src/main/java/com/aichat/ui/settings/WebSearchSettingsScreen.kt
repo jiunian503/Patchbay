@@ -169,7 +169,11 @@ fun WebSearchSettingsScreen(
             item {
                 BackendOption(
                     title = "关闭",
-                    body = "模型只能靠自己的知识回答，遇到不知道的会说不知道。",
+                    // ⚠️ 别说「遇到不知道的会说不知道」—— 那是**替模型打包票**，
+                    // 而它做不到：模型对不知道的事经常直接编一个。这一页其他四项
+                    // 都主动交代了缺点（Bing「随时可能失效」、SearXNG「通常意味着
+                    // 自己部署」），这一项也不该只讲好处。见 `PrivacyCopyTest`。
+                    body = "模型只能靠自己的知识回答 —— 它不知道的事可能答不上来，也可能说错。",
                     selected = state.backend == null,
                     onClick = { viewModel.selectBackend(null) },
                 )

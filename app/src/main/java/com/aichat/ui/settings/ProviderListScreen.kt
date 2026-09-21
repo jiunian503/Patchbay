@@ -307,8 +307,9 @@ fun ProviderListScreen(
                     PbNavRow(
                         icon = PbIcons.Warning,
                         title = "崩溃记录",
-                        body = "有 ${crash.count} 条记录，最近一次在 ${formatTime(crash.latestAt)}。" +
-                            "堆栈只存在这台设备上，复制出来就能拿去查。",
+                        // 三种情况分开说，其中一种只在「目录里有文件、但一份都解析
+                        // 不出来」时出现 —— 判据在 [crashRowBody] 里，那份能在 JVM 上测
+                        body = crashRowBody(crash),
                         onClick = onOpenCrashLogs,
                     )
                 }
@@ -402,6 +403,37 @@ private fun UpdateAvailableDialog(available: UpdateUiState.Available, onDismiss:
             TextButton(onClick = onDismiss) { Text("以后再说") }
         },
     )
+}
+
+/**
+ * 「诊断 → 崩溃记录」那一行的正文。
+ *
+ * 三种情况**必须分开说**，抽成纯函数是为了能在 JVM 上测（和 `updateRowText`
+ * 同一个理由）—— 而第三种只有「目录里有文件、但一份都解析不出来」时才会出现，
+ * 那是没人会手动去构造的场景，只靠人眼永远压不到：
+ *
+ * | `count` | `skipped` | 说什么 |
+ * |---|---|---|
+ * | >0 | >0 | 有几条记录，**另有**几份没能显示出来 |
+ * | >0 | 0 | 有几条记录 |
+ * | 0 | >0 | 有几份文件没能显示出来，点进去看 |
+ *
+ * ⚠️ 第三种**不能**省成「还没有崩溃记录」：目录里有东西，只是读不出来。而它
+ * 正是这一行还留在设置页上的唯一理由（见 `CrashSummary`）—— 藏掉这一行，
+ * 崩溃记录页上那句实话就没有入口了。
+ */
+internal fun crashRowBody(summary: CrashSummary): String {
+    // 「最近一次」只在真有记录时才有意义 —— 一份都没解析出来时 `latestAt` 是 null
+    val at = summary.latestAt?.let { "，最近一次在 ${formatTime(it)}" }.orEmpty()
+    val tail = "堆栈只存在这台设备上，复制出来就能拿去查。"
+    return when {
+        summary.count > 0 && summary.skipped > 0 ->
+            "有 ${summary.count} 条记录，另有 ${summary.skipped} 份没能显示出来$at。$tail"
+
+        summary.count > 0 -> "有 ${summary.count} 条记录$at。$tail"
+
+        else -> "有 ${summary.skipped} 份文件没能显示出来，点进去看看是什么。$tail"
+    }
 }
 
 /**

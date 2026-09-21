@@ -130,9 +130,14 @@ fun CrashLogScreen(
         title = "崩溃记录",
         onBack = onBack,
         actions = {
-            // 没有记录时不给这个按钮：一个按下去什么也不做的图标，
-            // 比没有这个图标更让人困惑
-            if (state.records.isNotEmpty()) {
+            // 一个文件都没有时不给这个按钮：一个按下去什么也不做的图标，
+            // 比没有这个图标更让人困惑。
+            //
+            // ⚠️ 判据是「**有没有东西可删**」，不是「有没有解析出来的记录」：
+            // 目录里躺着几份认不出的文件时 `records` 是空的，而这个按钮对它们
+            // **是有效的**（`clear()` 删的是目录里所有文件）—— 那种时候把按钮
+            // 藏起来，用户就再没有别的办法清掉它们了。
+            if (state.records.isNotEmpty() || state.skipped > 0) {
                 IconButton(onClick = { confirmingClear = true }) {
                     Icon(
                         PbIcons.DeleteSweep,
@@ -155,11 +160,23 @@ fun CrashLogScreen(
             }
 
             state.records.isEmpty() -> {
+                // ⚠️ 空列表有**两种来源**，而它们该说的话不一样：
+                // 「一份文件都没有」才是「它还没崩过」；目录里躺着几份认不出的
+                // 文件时，真相是「有东西，但看不到」—— 那时候说「还没崩过」
+                // 就是替它下结论。
+                val skipped = state.skipped
                 PbEmptyState(
-                    icon = PbIcons.Check,
-                    title = "没有崩溃记录",
-                    body = "App 崩溃时会把堆栈留在这里，方便你复制出来排查。" +
-                        "现在一条都没有 —— 说明它还没崩过。",
+                    // 图标本身就在表态：对勾是「没事」，感叹号是「有东西读不出来」
+                    icon = if (skipped > 0) PbIcons.Warning else PbIcons.Check,
+                    title = if (skipped > 0) "没有能显示的记录" else "没有崩溃记录",
+                    body = if (skipped > 0) {
+                        "这个目录里有 $skipped 份文件没能显示出来 —— " +
+                            "名字对不上、内容读不出来，或者大到不可能是它写的。" +
+                            "可能不是这个 App 放进去的；上面那个按钮能一并清掉它们。"
+                    } else {
+                        "App 崩溃时会把堆栈留在这里，方便你复制出来排查。" +
+                            "现在一条都没有 —— 说明它还没崩过。"
+                    },
                     modifier = Modifier.fillMaxSize().padding(top = topInset),
                 )
             }

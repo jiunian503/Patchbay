@@ -36,7 +36,20 @@ data class ProviderRow(
  * 整体可空：**一条记录都没有时那一行根本不显示**。放一个灰着的入口在那儿，
  * 用户点进去看到一页空白，只会以为这功能坏了。
  */
-data class CrashSummary(val count: Int, val latestAt: Long)
+/**
+ * 设置页「诊断 → 崩溃记录」那一行的内容。
+ *
+ * ## ⚠️ [count] 为 0 而 [skipped] > 0 是可能的，而且**这一行不能因此消失**
+ *
+ * 目录里可能有几份文件**解析不出来**（名字对不上、内容读不出、大到不可能是
+ * 我们写的 —— 见 `CrashStore.skippedCount`）。那时一条记录都没有，但崩溃记录
+ * 页上那句「有 N 份没能显示出来」**只有从这里进得去**：把这一行藏掉，等于把
+ * 那句实话也一起藏了 —— 用户既看不到，也没法清掉它们。
+ *
+ * [latestAt] 因此可以是 `null`：一份记录都没解析出来时，没有「最近一次」可言。
+ * 正文怎么写见 `crashRowBody`（那一份能在 JVM 上测）。
+ */
+data class CrashSummary(val count: Int, val latestAt: Long?, val skipped: Int)
 
 data class ProviderListUiState(
     val items: List<ProviderRow> = emptyList(),
@@ -113,8 +126,13 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
                 )
             }
             // 崩溃记录读的是**文件**（不是数据库），是阻塞调用 —— 必须挪到 IO 上。
-            // viewModelScope 默认跑在主线程，直接调 list() 就是在主线程读磁盘
-            val crashes = withContext(Dispatchers.IO) { container.crashes.list() }
+            // viewModelScope 默认跑在主线程，直接调 list() 就是在主线程读磁盘。
+            // ⚠️ `skippedCount()` 一起在这里取：它也要扫一遍目录，而这一行
+            // **出不出现**取决于它（见 [CrashSummary]）—— 放到组合里现取就是
+            // 在主线程读磁盘。
+            val (crashes, skippedCrashes) = withContext(Dispatchers.IO) {
+                container.crashes.list() to container.crashes.skippedCount()
+            }
             // 版本号同理：读它要走一次 PackageManager（一个 binder 调用），
             // 和崩溃记录一起在 IO 上拿回来
             val version = withContext(Dispatchers.IO) { container.appVersionName }
@@ -131,11 +149,21 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
                         .fromId(container.settings.webSearchBackend())
                         ?.label
                         .orEmpty(),
-                    // list() 已经是时间倒序，第一条就是最新那次崩溃
-                    crashes = crashes.firstOrNull()
-                        ?.let { newest ->
-                            CrashSummary(count = crashes.size, latestAt = newest.epochMillis)
-                        },
+                    // list() 已经是时间倒序，第一条就是最新那次崩溃。
+                    //
+                    // ⚠️ 判据是「**目录里有没有东西**」，不是「有没有解析出来的
+                    // 记录」：只有几份认不出的文件时 `count` 是 0，但这一行**必须
+                    // 还在** —— 崩溃记录页上那句「有 N 份没能显示出来」只有从
+                    // 这里进得去（见 [CrashSummary]）。藏掉它，那句实话就没有入口。
+                    crashes = if (crashes.isNotEmpty() || skippedCrashes > 0) {
+                        CrashSummary(
+                            count = crashes.size,
+                            latestAt = crashes.firstOrNull()?.epochMillis,
+                            skipped = skippedCrashes,
+                        )
+                    } else {
+                        null
+                    },
                     // 只数个数。这一行不需要角色名，读全表回来只为 size
                     // 是可接受的 —— 一张角色卡几十字节，用户也不会建几百个
                     characterCount = container.characters.list().size,
