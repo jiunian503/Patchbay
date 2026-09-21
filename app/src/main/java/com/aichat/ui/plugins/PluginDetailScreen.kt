@@ -126,7 +126,12 @@ fun PluginDetailScreen(
                 )
             }
 
-            ToolBlock(state.tools, isMcp = state.isMcp, hasCache = state.mcp.connected)
+            ToolBlock(
+                state.tools,
+                isMcp = state.isMcp,
+                hasCache = state.mcp.connected,
+                broken = state.isBroken,
+            )
 
             if (state.fields.isNotEmpty()) {
                 SettingsBlock(
@@ -488,7 +493,12 @@ private fun WorkspaceBlock(
 private const val MAX_VISIBLE_FILES = 30
 
 @Composable
-private fun ToolBlock(tools: List<PluginToolRow>, isMcp: Boolean, hasCache: Boolean) {
+private fun ToolBlock(
+    tools: List<PluginToolRow>,
+    isMcp: Boolean,
+    hasCache: Boolean,
+    broken: Boolean,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth(),
@@ -497,20 +507,9 @@ private fun ToolBlock(tools: List<PluginToolRow>, isMcp: Boolean, hasCache: Bool
             Text("提供的工具", style = MaterialTheme.typography.titleSmall)
             if (tools.isEmpty()) {
                 Text(
-                    // 空的原因决定了用户下一步该做什么，所以必须分开说。
-                    // 一句笼统的「没有提供工具」会让 MCP 用户去卸载重装 ——
-                    // 而真正该做的是点上面那个「连接并刷新」
-                    text = when {
-                        isMcp && !hasCache ->
-                            "还没拉取过工具清单。点上面那个按钮连一次就能看到。"
-
-                        isMcp ->
-                            "对端这次一个工具都没提供。可能是它在服务端把工具关掉了，" +
-                                "也可能是这个地址指向的不是工具端点。"
-
-                        else ->
-                            "这个插件没有提供工具（清单里 tools 是空的，或者运行形态还没实现）"
-                    },
+                    // 空的原因决定了用户下一步该做什么，所以必须分开说 ——
+                    // 三句话都在 [emptyToolsMessage] 里，那份能在 JVM 上测
+                    text = emptyToolsMessage(broken, isMcp, hasCache),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

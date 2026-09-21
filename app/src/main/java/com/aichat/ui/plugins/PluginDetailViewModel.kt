@@ -157,6 +157,20 @@ data class PluginDetailUiState(
     val permissions: List<String> = emptyList(),
     val highRisk: Boolean = false,
 
+    /**
+     * 清单现在解析不了。
+     *
+     * 和列表页的 [PluginRow.isBroken] 是同一个信号（都来自
+     * `PluginStatus.isBroken`），但详情页非有它不可：**有两块内容会因此变成
+     * 空的** —— 它申请了什么权限、它提供了哪些工具，两样都读不出来。
+     * 界面拿不到这个信号，就会把「读不出来」说成「没有」，而这两句话都
+     * 出现在用户判断「要不要继续用它」的那一刻。
+     *
+     * ⚠️ 和 [missing] 不是一回事：`missing` 是插件没了（要返回列表），
+     * 这个是插件还在、只是清单读不出来（列表页会把它列出来并说明原因）。
+     */
+    val isBroken: Boolean = false,
+
     val warnings: List<String> = emptyList(),
     val notices: List<String> = emptyList(),
 
@@ -264,7 +278,13 @@ class PluginDetailViewModel(
                         failed = previous.mcp.failed,
                     ),
                     tools = toolRows(status.isMcp, cache?.tools, manifest, registry, anyHost),
-                    permissions = manifest?.permissions?.describe().orEmpty(),
+                    // 清单解析不了时权限区**不能**给空列表：界面会把空列表读成
+                    // 「没有申请任何权限」，而真相是「看不出」。详见 [permissionLines]
+                    permissions = permissionLines(
+                        broken = status.isBroken,
+                        permissions = manifest?.permissions?.describe().orEmpty(),
+                    ),
+                    isBroken = status.isBroken,
                     highRisk = manifest?.permissions?.isHighRisk == true,
                     warnings = status.check?.warnings?.map { it.toString() }.orEmpty(),
                     notices = registry.problemsOf(pluginId).map { it.toString() },
