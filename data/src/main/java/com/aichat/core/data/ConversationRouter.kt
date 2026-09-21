@@ -71,10 +71,16 @@ class ConversationRouter(
      * 在另一个页面删掉。静默失败在这里是对的：会话保持原来的归属，
      * 用户看到的是「没换过去」，而不是一个看不懂的异常。
      *
-     * @return 真的换成功了没有。
+     * @return 真的换成功了没有。服务商不存在，**或者会话行还没建出来**，都返回 false。
      */
     suspend fun repin(conversationId: String, providerId: String): Boolean {
         val provider = providers.resolve(providerId) ?: return false
+        // 行还没建出来（新会话的第一条消息还没发）→ 下面那条 UPDATE 影响 0 行，
+        // 什么都不会发生。**如实返回 false**，别让调用方以为换成功了：
+        // 它要拿这个 false 去把这个选择暂存起来，等会话行出现再写。
+        // 以前这里无条件返回 true，于是「新建对话 → 换服务商 → 发第一句话」
+        // 这条路径上用户的选择被静默丢掉（见 :app 的 resolveProviderPin）
+        if (conversations.get(conversationId) == null) return false
         conversations.setRoute(conversationId, provider.id, provider.model, clock())
         return true
     }

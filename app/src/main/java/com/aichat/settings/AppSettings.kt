@@ -167,6 +167,38 @@ class AppSettings(context: Context) {
         }
     }
 
+    /**
+     * 「会话行还没建出来时先换好的服务商」。没换过（或者已经提升进库了）返回 null。
+     *
+     * 和 [pendingCharacterConversation] 是同一个坑、同一套解法：会话行要等第一条
+     * 消息发出去才建，而顶栏的服务商入口在那之前就能点到，于是
+     * `UPDATE ... WHERE id = ?` 影响 0 行、选择被静默丢掉（用户看到顶栏弹回默认）。
+     * 完整的推导在 [resolveProviderPin] 的 KDoc 里。
+     *
+     * 和角色那对键**分开存**，不共用：两者是独立的用户动作（换了服务商不等于
+     * 换了角色），合成一对的话会出现「清了服务商的待定值顺手把角色的也清了」。
+     */
+    fun pendingProviderConversation(): String? =
+        prefs.getString(KEY_PENDING_PROVIDER_CONV, null)
+
+    fun pendingProvider(): String? = prefs.getString(KEY_PENDING_PROVIDER, null)
+
+    /** 两个参数都传 null 就是清空。 */
+    fun setPendingProvider(conversationId: String?, providerId: String?) {
+        prefs.edit {
+            if (conversationId == null) {
+                remove(KEY_PENDING_PROVIDER_CONV)
+            } else {
+                putString(KEY_PENDING_PROVIDER_CONV, conversationId)
+            }
+            if (providerId == null) {
+                remove(KEY_PENDING_PROVIDER)
+            } else {
+                putString(KEY_PENDING_PROVIDER, providerId)
+            }
+        }
+    }
+
     companion object {
         /**
          * 偏好文件名。
@@ -200,5 +232,16 @@ class AppSettings(context: Context) {
         private const val KEY_PENDING_CHARACTER_CONV = "pending_character_conversation"
 
         private const val KEY_PENDING_CHARACTER = "pending_character_id"
+
+        /**
+         * 「会话行还没建出来时先换好的服务商」。
+         *
+         * 和角色那对**分开存**：两者是独立的用户动作（换了服务商不等于换了角色），
+         * 合成一对的话会出现「清服务商的待定值顺手把角色的也清了」。
+         * 推导见 [resolveProviderPin]。
+         */
+        private const val KEY_PENDING_PROVIDER_CONV = "pending_provider_conversation"
+
+        private const val KEY_PENDING_PROVIDER = "pending_provider_id"
     }
 }

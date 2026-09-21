@@ -572,8 +572,43 @@ class AppContainer(context: Context) : ChatDeps {
 
     fun newConversationId(): String = UUID.randomUUID().toString()
 
-    override suspend fun providerForConversation(conversationId: String): ResolvedProvider? =
-        conversationRouter.resolve(conversationId)
+    /**
+     * 这个会话该用哪个服务商。
+     *
+     * ## 为什么不能直接转给 [conversationRouter]
+     *
+     * 会话行要等第一条消息发出去才建，而顶栏那个服务商入口在那之前就能点到。
+     * 用户在那时换的服务商只能先存在设置里（见 [resolveProviderPin]）——
+     * 不在这里读它的话，`ConversationRouter` 只会返回默认那个，用户刚做的选择
+     * 会被静默盖掉，界面上表现为「顶栏弹回去了」。
+     *
+     * ## 这个方法会写库（一次，幂等）
+     *
+     * 行一旦出现就把待定值提升进库。顺序不能反：**先落库再清待定值** ——
+     * 反过来的话中间崩一次就两边都没有了。
+     */
+    override suspend fun providerForConversation(conversationId: String): ResolvedProvider? {
+        val row = db.conversationDao().get(conversationId)
+        val pin = resolveProviderPin(
+            conversationId = conversationId,
+            rowExists = row != null,
+            rowProviderId = row?.providerId,
+            pendingConversationId = settings.pendingProviderConversation(),
+            pendingProviderId = settings.pendingProvider(),
+        )
+
+        val pinned = pin.providerId
+        if (pin.promote && pinned != null) {
+            conversationRouter.repin(conversationId, pinned)
+        }
+        if (pin.clearPending) {
+            settings.setPendingProvider(null, null)
+        }
+
+        // 待定值优先 —— `ConversationRouter` 不认识「用户还没说话就选好了」这件事。
+        // 服务商被删了的话 resolve 给 null，那就退回路由自己的规则
+        return pinned?.let { providers.resolve(it) } ?: conversationRouter.resolve(conversationId)
+    }
 
     override suspend fun selectableProviders(): List<ProviderChoice> =
         providers.list().map { entity ->
@@ -587,8 +622,34 @@ class AppContainer(context: Context) : ChatDeps {
             )
         }
 
-    override suspend fun repinConversation(conversationId: String, providerId: String): Boolean =
-        conversationRouter.repin(conversationId, providerId)
+    /**
+     * 把这个会话换到另一个服务商。
+     *
+     * ## 行还没建的时候不能直接写库
+     *
+     * 新会话的会话行要等第一条消息发出去才建，而顶栏的服务商入口在那之前就能点到。
+     * 那时 `ConversationRouter.repin` 里的 UPDATE 影响 0 行、选择被静默丢掉
+     * （用户看到顶栏弹回默认）。所以先记在设置里，等行一出现由
+     * [providerForConversation] 提升进库 —— 和角色那条路同一个解法。
+     *
+     * @return 这次「换」的意图被接受了吗。行还没建时也返回 true：选择已经存下来了，
+     *   界面该刷新去显示它（这正是修掉「顶栏弹回去」的关键）。
+     *   服务商不存在才返回 false。
+     */
+    override suspend fun repinConversation(conversationId: String, providerId: String): Boolean {
+        if (db.conversationDao().get(conversationId) == null) {
+            if (providers.resolve(providerId) == null) return false
+            settings.setPendingProvider(conversationId, providerId)
+            return true
+        }
+
+        // 行在：和以前一样直接写。顺手清掉可能残留的待定值 —— 它已经过期，
+        // 不清的话下一次读会拿它去覆盖用户刚刚做的选择
+        if (settings.pendingProviderConversation() == conversationId) {
+            settings.setPendingProvider(null, null)
+        }
+        return conversationRouter.repin(conversationId, providerId)
+    }
 
     override suspend fun transcript(
         conversationId: String,

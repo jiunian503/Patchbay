@@ -14,9 +14,11 @@ import org.junit.Test
  * 全部在 JVM 上跑。路由只依赖两个 DAO 接口和 [ProviderRepository]，
  * 所以不需要模拟器。
  *
- * 重点覆盖**两条退化路径**：会话还没钉过、钉着的服务商被删了。
- * 这两条都是「不写就会静默走错」的地方 —— 前者会让同一会话前后两轮
- * 用上不同服务商，后者会让会话永久卡死。
+ * 重点覆盖**三条退化路径**：会话还没钉过、钉着的服务商被删了、**会话行还没建
+ * 出来就 repin**。
+ * 前两条是「不写就会静默走错」的地方 —— 会话还没钉过会让同一会话前后两轮
+ * 用上不同服务商，钉着的被删了会让会话永久卡死。第三条是「写下去等于没写」：
+ * UPDATE 影响 0 行，而返回值以前还报 true（第七十八轮修的）。
  */
 class ConversationRouterTest {
 
@@ -200,6 +202,20 @@ class ConversationRouterTest {
 
         assertEquals("p2" to "model-p2", env.routeOf("c1"))
         assertEquals("改钉之后解析出来就是 p2", "p2", env.router.resolve("c1")?.id)
+    }
+
+    @Test
+    fun `行还没建时 repin 如实返回 false`() = runTest {
+        val env = Env()
+        env.provider("p1", makeDefault = true)
+        env.provider("p2")
+
+        // 没建过这个会话。以前这里**无条件返回 true**，而 setRoute 更新 0 行 ——
+        // 调用方以为换成功了，其实什么都没发生。用户看到的是顶栏弹回默认，
+        // 然后发出去的第一句话用的是默认那个服务商（第七十八轮发现）
+        assertFalse("没有行可写就必须如实失败", env.router.repin("nope", "p2"))
+
+        assertNull("也不该为了这个凭空建出一行", env.conversationDao.rows["nope"])
     }
 
     @Test
