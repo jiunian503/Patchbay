@@ -21,7 +21,27 @@ import kotlinx.coroutines.withContext
 /** 一次对话的模型参数。 */
 data class ChatConfig(
     val model: String,
+
+    /** 服务商上配的「附加提示词」。与 [injectedPrompt] 的关系见那边的注释。 */
     val systemPrompt: String? = null,
+
+    /**
+     * 角色卡注入的提示词（人设 + 世界书命中条目），由宿主在每轮开始前解析。
+     *
+     * ## 为什么要和 [systemPrompt] 分开
+     *
+     * 两者的**来源和生命周期都不同**：这个每轮重算（世界书是按当前上下文
+     * 命中的，换个话题就该换一批条目），那个是服务商上的固定配置。
+     * 合成一个字段的话，「这轮为什么多了一段」就查不出来了。
+     *
+     * 发送时按「先这个、后 [systemPrompt]」合成一条 system 消息 ——
+     * 人设在前，对所有人都生效的补充要求在后。见 [systemMessage]。
+     *
+     * 解析放在 `:app` 而不是引擎里：`:chat` 不认识 Room，而角色卡和世界书
+     * 都存在库里（`:chat` 不依赖 `:data` 的模块边界）。
+     */
+    val injectedPrompt: String? = null,
+
     val temperature: Double? = null,
     val maxTokens: Int? = null,
 
@@ -89,14 +109,15 @@ class ConversationEngine(
      * 发起一次对话。
      *
      * [history] 是已有的消息（不含本次用户输入的话，需要调用方自己追加）。
-     * 系统提示词由 [ChatConfig.systemPrompt] 提供，会插在最前面。
+     * 系统提示词由 [ChatConfig.injectedPrompt] 与 [ChatConfig.systemPrompt]
+     * 合成一条，插在最前面（见 [systemMessage]）。
      *
      * Flow 正常完成时最后一个是 [ChatEvent.Completed] 或 [ChatEvent.Failed]；
      * 被取消时不发任何终止事件 —— 用户按了停止，UI 自己知道。
      */
     fun send(history: List<ChatMessage>, config: ChatConfig): Flow<ChatEvent> = flow {
         val working = mutableListOf<ChatMessage>()
-        config.systemPrompt?.takeIf { it.isNotBlank() }?.let { working += ChatMessage.system(it) }
+        config.systemMessage()?.let { working += ChatMessage.system(it) }
         working += history
 
         // 跨轮累积：最终答案由多轮文本拼成，用户看到的是一条完整回复
@@ -234,3 +255,25 @@ class ConversationEngine(
 }
 
 internal fun ToolDefinition.toDto() = ToolDefinitionDto.of(name, description, parameters)
+
+/**
+ * 把两段提示词合成**一条** system 消息。
+ *
+ * ## 为什么合成一条，而不是发两条 system
+ *
+ * OpenAI 兼容服务端对多条 `system` 的处理并不统一：有的只认第一条，
+ * 有的把后面的丢掉。合成一条之后，「人设在前、服务商附加在后」的顺序
+ * 完全一样，但没有这个兼容风险。
+ *
+ * ## 两段都空时返回 null
+ *
+ * 此时发出去的消息列表和加这个能力之前**逐字节相同** —— 没选角色的老会话
+ * 行为不会有一丝变化。这是这次改动最重要的向后兼容保证：
+ * 功能是加法，不是替换。
+ */
+internal fun ChatConfig.systemMessage(): String? =
+    listOfNotNull(injectedPrompt, systemPrompt)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString("\n\n")
+        .ifBlank { null }

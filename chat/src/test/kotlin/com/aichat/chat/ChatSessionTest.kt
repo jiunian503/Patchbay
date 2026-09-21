@@ -232,7 +232,10 @@ private fun toolCallDelta(
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatSessionTest {
 
-    private class Env(tools: List<Tool> = emptyList()) {
+    private class Env(
+        tools: List<Tool> = emptyList(),
+        promptSource: SystemPromptSource? = null,
+    ) {
         val store = MemoryStore()
         val client = ScriptedClient()
         var now = 1_000L
@@ -243,6 +246,7 @@ class ChatSessionTest {
             ids = { nextId++ },
             clock = { now },
             persistIntervalMs = 400L,
+            promptSource = promptSource,
         )
 
         /** 用户消息拿 100，第一条回复行拿 101。 */
@@ -933,5 +937,128 @@ class ChatSessionTest {
         assertEquals("单行", deriveTitle("单行"))
         assertEquals("", deriveTitle("   "))
         assertEquals("", deriveTitle("\n\n"))
+    }
+
+    // ------------------------------------------------- 角色注入（promptSource）
+
+    @Test
+    fun `promptSource 解析出的提示词被插在消息列表最前面`() = runTest {
+        val env = Env(promptSource = { _, _ -> "你是一位诗人。" })
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config).toList()
+
+        val sent = env.client.requests.single().messages
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertEquals("你是一位诗人。", sent.first().content)
+    }
+
+    @Test
+    fun `promptSource 拿到的历史里已经包含本次输入`() = runTest {
+        var seen: List<ChatMessage> = emptyList()
+        val env = Env(promptSource = { _, history -> seen = history; null })
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "我住在北京", config).toList()
+
+        // 世界书就是扫这段历史来命中的。少这一条，「用户刚说的话触发不了词条」
+        assertTrue(seen.any { it.role == ChatMessage.Role.User && it.content == "我住在北京" })
+    }
+
+    @Test
+    fun `promptSource 收到的是当前会话 id`() = runTest {
+        var seenId: String? = null
+        val env = Env(promptSource = { id, _ -> seenId = id; null })
+        env.client.enqueueText("好")
+
+        env.session.send("c-42", "在吗", config).toList()
+
+        // 角色是**会话的属性**，只给 history 的话推不出「这是哪个会话」
+        assertEquals("c-42", seenId)
+    }
+
+    @Test
+    fun `promptSource 返回空白时不注入系统消息`() = runTest {
+        val env = Env(promptSource = { _, _ -> "   " })
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config).toList()
+
+        val sent = env.client.requests.single().messages
+        assertTrue(sent.none { it.role == "system" })
+    }
+
+    @Test
+    fun `没有 promptSource 时系统消息只来自服务商配置`() = runTest {
+        val env = Env()
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config.copy(systemPrompt = "请用中文回答。")).toList()
+
+        val sent = env.client.requests.single().messages
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertEquals("请用中文回答。", sent.first().content)
+    }
+
+    @Test
+    fun `角色注入与服务商附加拼成一条系统消息`() = runTest {
+        val env = Env(promptSource = { _, _ -> "你是一位诗人。" })
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config.copy(systemPrompt = "请用中文回答。")).toList()
+
+        val sent = env.client.requests.single().messages
+        // 合成**一条**而不是两条 system —— 部分兼容服务端只认第一条
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertEquals("你是一位诗人。\n\n请用中文回答。", sent.first().content)
+    }
+
+    @Test
+    fun `重新生成会重新解析提示词`() = runTest {
+        var calls = 0
+        val env = Env(promptSource = { _, _ -> calls++; null })
+        env.client.enqueueText("一")
+        env.client.enqueueText("二")
+
+        env.session.send("c1", "在吗", config).toList()
+        val reply = env.store.replies.single()
+        env.session.regenerate("c1", MessageCursor(reply.createdAt, reply.id), config).toList()
+
+        // 世界书是按上下文命中的，只在会话开始时解析一次的话，
+        // 聊到第三章还带着第一章的设定
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `编辑重发会重新解析提示词`() = runTest {
+        var calls = 0
+        val env = Env(promptSource = { _, _ -> calls++; null })
+        env.client.enqueueText("一")
+        env.client.enqueueText("二")
+
+        env.session.send("c1", "在吗", config).toList()
+        val user = env.store.writes.first()
+        env.session.editAndResend("c1", MessageCursor(user.createdAt, user.id), "改了", config).toList()
+
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `一次发送只解析一次提示词，工具循环不重复解析`() = runTest {
+        var calls = 0
+        val env = Env(
+            tools = listOf(weatherTool()),
+            promptSource = { _, _ -> calls++; "人设" },
+        )
+        env.client.enqueue(flow { emit(toolCallDelta()) })
+        env.client.enqueueText("北京 25°C 晴")
+
+        env.session.send("c1", "查天气", config).toList()
+
+        // 一次 send = 一次完整对话（含工具循环），所以只该解析一次。
+        // 每轮都重解析的话，第二轮的工具结果会改变命中结果 ——
+        // 而那时第一条 system 早就发出去了，改了也没用，只会让
+        // 「这一轮到底注入了什么」变得无法复现
+        assertEquals(1, calls)
     }
 }

@@ -32,6 +32,12 @@ import androidx.room.RoomDatabase
  *   而且丢了只是多一次网络往返 —— 和清单原文的地位完全不同，见 [PluginEntity]。
  * - **v5**：`conversation` 加 `pinned`（用户置顶）。单独一列而不是复用
  *   `updated_at`，因为后者要显示「最后活跃时间」，见 [ConversationEntity]。
+ * - **v6**：`provider` 加 `system_prompt` / `temperature` / `max_tokens`。
+ *   三列都可空，而且 `null` 是有意义的取值（= 请求里根本不发这个字段）。
+ * - **v7**：新增 `character`（角色卡）与 `world_book_entry`（世界书条目），
+ *   `conversation` 加 `character_id`。提示词从「服务商的属性」变成
+ *   「可复用的实体」—— v6 当时把提示词放在 `provider` 上的理由被推翻了，
+ *   原话和推翻它的理由都记在 [CharacterEntity] 里。
  */
 @Database(
     entities = [
@@ -40,8 +46,10 @@ import androidx.room.RoomDatabase
         ConversationEntity::class,
         ProviderEntity::class,
         PluginEntity::class,
+        CharacterEntity::class,
+        WorldBookEntryEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +63,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun providerDao(): ProviderDao
 
     abstract fun pluginDao(): PluginDao
+
+    abstract fun characterDao(): CharacterDao
+
+    abstract fun worldBookEntryDao(): WorldBookEntryDao
 
     companion object {
 
@@ -105,6 +117,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
     }
 }

@@ -281,6 +281,21 @@ class FakeConversationDao(private val messages: FakeMessageDao) : ConversationDa
         }
     }
 
+    /**
+     * 复刻真实 SQL：只改 `character_id`，**不碰 `updated_at`**。
+     * 理由和 [setPinned] 一样 —— 假实现顺手更新时间戳会替实现方掩盖 bug。
+     */
+    override suspend fun setCharacter(id: String, characterId: String?) {
+        rows[id]?.let { rows[id] = it.copy(characterId = characterId) }
+    }
+
+    override suspend fun clearCharacter(characterId: String) {
+        rows.keys.toList().forEach { id ->
+            val row = rows.getValue(id)
+            if (row.characterId == characterId) rows[id] = row.copy(characterId = null)
+        }
+    }
+
     override suspend fun delete(id: String) {
         rows.remove(id)
         changes.value++
@@ -350,6 +365,61 @@ class FakeProviderDao : ProviderDao {
     private companion object {
         val providerOrder = compareByDescending<ProviderEntity> { it.isDefault }
             .thenByDescending { it.updatedAt }
+    }
+}
+
+class FakeCharacterDao : CharacterDao {
+
+    val rows = LinkedHashMap<String, CharacterEntity>()
+
+    private val changes = MutableStateFlow(0)
+
+    /** 与真实 SQL 的 `ORDER BY created_at DESC` 一致。 */
+    override fun observeAll(): Flow<List<CharacterEntity>> =
+        changes.map { rows.values.sortedByDescending { it.createdAt } }
+
+    override suspend fun list(): List<CharacterEntity> =
+        rows.values.sortedByDescending { it.createdAt }
+
+    override suspend fun get(id: String): CharacterEntity? = rows[id]
+
+    override suspend fun upsert(entity: CharacterEntity) {
+        rows[entity.id] = entity
+        changes.value++
+    }
+
+    override suspend fun delete(id: String) {
+        rows.remove(id)
+        changes.value++
+    }
+}
+
+class FakeWorldBookEntryDao : WorldBookEntryDao {
+
+    val rows = LinkedHashMap<String, WorldBookEntryEntity>()
+
+    override suspend fun listFor(characterId: String): List<WorldBookEntryEntity> =
+        rows.values
+            .filter { it.characterId == characterId }
+            .sortedWith(entryOrder)
+
+    override suspend fun upsertAll(entities: List<WorldBookEntryEntity>) {
+        entities.forEach { rows[it.id] = it }
+    }
+
+    override suspend fun deleteFor(characterId: String) {
+        rows.keys.toList().forEach { id ->
+            if (rows.getValue(id).characterId == characterId) rows.remove(id)
+        }
+    }
+
+    override suspend fun delete(id: String) {
+        rows.remove(id)
+    }
+
+    private companion object {
+        /** 与真实 SQL 的 `ORDER BY order_index, id` 一致。 */
+        val entryOrder = compareBy<WorldBookEntryEntity>({ it.orderIndex }, { it.id })
     }
 }
 

@@ -10,6 +10,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.aichat.di.AppContainer
+import com.aichat.ui.characters.CharacterEditScreen
+import com.aichat.ui.characters.CharacterListScreen
 import com.aichat.ui.chat.ChatScaffold
 import com.aichat.ui.conversations.ConversationSearchScreen
 import com.aichat.ui.crash.CrashLogScreen
@@ -54,9 +56,10 @@ fun navEntryDecorators(): List<NavEntryDecorator<Any>> = listOf(
 )
 
 /**
- * 导航图。八个目的地，没有嵌套。
+ * 导航图。十个目的地，没有嵌套。
  *
- * （对话 / 搜索 / 服务商列表 / 服务商编辑 / 联网搜索 / 插件列表 / 插件安装 / 插件详情）
+ * （对话 / 搜索 / 服务商列表 / 服务商编辑 / 联网搜索 / 插件列表 / 插件安装 /
+ * 插件详情 / 角色列表 / 角色编辑）
  *
  * ## 起始目的地是「上次那个会话」，不是列表
  *
@@ -201,6 +204,23 @@ fun MainNavigation(container: AppContainer) {
                         onOpenPlugins = { backStack.add(PluginList) },
                         onOpenWebSearch = { backStack.add(WebSearchSettings) },
                         onOpenCrashLogs = { backStack.add(CrashLogs) },
+                        onOpenCharacters = { backStack.add(CharacterList) },
+                    )
+                }
+
+                entry<CharacterList> {
+                    CharacterListScreen(
+                        container = container,
+                        onBack = { backStack.removeLastOrNull() },
+                        onEdit = { characterId -> backStack.add(CharacterEdit(characterId)) },
+                    )
+                }
+
+                entry<CharacterEdit> { key ->
+                    CharacterEditScreen(
+                        container = container,
+                        characterId = key.characterId,
+                        onBack = { backStack.removeLastOrNull() },
                     )
                 }
 

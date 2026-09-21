@@ -7,9 +7,11 @@ import com.aichat.chat.ConversationStore
 import com.aichat.chat.MessageCursor
 import com.aichat.chat.MonotonicIds
 import com.aichat.chat.StoredMessage
+import com.aichat.chat.SystemPromptSource
 import com.aichat.chat.TranscriptPage
 import com.aichat.core.data.AndroidKeystoreSecretStore
 import com.aichat.core.data.AppDatabase
+import com.aichat.core.data.CharacterRepository
 import com.aichat.core.data.ConversationRouter
 import com.aichat.core.data.ProviderRepository
 import com.aichat.core.data.PluginRepository
@@ -104,6 +106,111 @@ class AppContainer(context: Context) : ChatDeps {
             fts = db.messageFtsDao(),
             conversations = db.conversationDao(),
             tx = tx,
+        )
+    }
+
+    /**
+     * 角色卡与世界书。
+     *
+     * 和 [conversations] 分开：那个是「对话生命周期的出口」，每加一个方法
+     * 都会逼着 `ChatSessionTest` 的假实现跟着长一个；这个是角色配置的读写，
+     * 只有设置界面和注入侧用它。
+     */
+    val characters: CharacterRepository by lazy {
+        CharacterRepository(
+            characters = db.characterDao(),
+            entries = db.worldBookEntryDao(),
+            conversations = db.conversationDao(),
+            tx = tx,
+        )
+    }
+
+    /**
+     * 会话选角色。`null` = 不注入任何角色提示词（行为和 v6 升上来的老会话一样）。
+     *
+     * 做成 [AppContainer] 上的一个方法而不是塞进 `ConversationStore`：
+     * 那个接口是 `:chat` 的，而「角色」是宿主侧的概念 —— 让对话引擎
+     * 认识角色卡，等于把 `:data` 的表结构泄漏进 `:chat`。
+     *
+     * ## 会话行还不存在时先存进设置
+     *
+     * 会话行是**第一条消息发出去时**才建的，而角色选择器在那之前就能点到。
+     * 直接写库的话，`UPDATE ... WHERE id = ?` 影响 0 行、**不报错**，
+     * 用户看到的是「人设选了却不生效」。所以行不在时先记在设置里，
+     * 等行一出现再由 [effectiveCharacterId] 搬进库（判断逻辑在
+     * `resolveCharacterChoice`，是纯函数、有单测）。
+     */
+    suspend fun selectCharacter(conversationId: String, characterId: String?) {
+        if (db.conversationDao().get(conversationId) != null) {
+            db.conversationDao().setCharacter(conversationId, characterId)
+            // 行已经在了，之前可能留下的待定值就过期了 —— 不清的话
+            // 下一次读会拿它去覆盖用户刚刚做的选择
+            if (settings.pendingCharacterConversation() == conversationId) {
+                settings.setPendingCharacter(null, null)
+            }
+            return
+        }
+
+        // 「不用角色」没什么可记的，顺手把可能残留的待定值清掉
+        if (characterId == null) {
+            settings.setPendingCharacter(null, null)
+        } else {
+            settings.setPendingCharacter(conversationId, characterId)
+        }
+    }
+
+    /**
+     * 这个会话最终该用哪个角色。null = 没选（或者会话还没建、也没先选过）。
+     *
+     * 和 [selectCharacter] 配对。**不做缓存**：会话的 `character_id` 可能在
+     * 别处被改（比如用户刚在设置里删掉了这个角色，`CharacterRepository.delete`
+     * 会把引用清空），缓存下来就会显示一个已经不存在的角色名。
+     *
+     * ## 这个方法会写库（一次，幂等）
+     *
+     * 名字从 `characterIdOf` 改过来的，因为它不只是「读」：如果用户在会话行
+     * 建出来**之前**就选好了角色，那这里要把暂存的选择提升进会话行。
+     * 没有别的时机能做这件事 —— 会话行的创建发生在 `ChatSession.send()` 里，
+     * 而 `:chat` 不认识「角色」。
+     *
+     * 提升之后暂存值立刻清掉，所以同一个会话只会写这一次。**这是刻意的**：
+     * 不提升的话，选择只活在设置里，用户重启 App 后选择器会显示「不用角色」，
+     * 而人设其实还在生效 —— 界面和实际行为对不上，是最难查的一类问题。
+     */
+    suspend fun effectiveCharacterId(conversationId: String): String? {
+        val row = db.conversationDao().get(conversationId)
+        val choice = resolveCharacterChoice(
+            conversationId = conversationId,
+            rowExists = row != null,
+            rowCharacterId = row?.characterId,
+            pendingConversationId = settings.pendingCharacterConversation(),
+            pendingCharacterId = settings.pendingCharacter(),
+        )
+
+        // 顺序不能反：先把值落到行上，再清暂存 —— 反过来的话中间崩一次
+        // 就两边都没有了
+        if (choice.promote) {
+            db.conversationDao().setCharacter(conversationId, choice.characterId)
+        }
+        if (choice.clearPending) {
+            settings.setPendingCharacter(null, null)
+        }
+        return choice.characterId
+    }
+
+    /**
+     * 每轮对话前解析要注入的系统提示词（角色人设 + 世界书命中条目）。
+     *
+     * 它读**会话表**（这个会话选了哪个角色）和角色库，所以只能活在宿主
+     * 这一层 —— `:chat` 连 Room 都不认识。
+     *
+     * 传的是 [effectiveCharacterId] 的引用而不是 `ConversationDao`：
+     * 「行还没建出来时选择暂存在哪」这件事只有 [AppContainer] 知道。
+     */
+    private val promptSource: SystemPromptSource by lazy {
+        CharacterSystemPromptSource(
+            characterIdOf = ::effectiveCharacterId,
+            characters = characters,
         )
     }
 
@@ -512,6 +619,9 @@ class AppContainer(context: Context) : ChatDeps {
             ),
             store = conversations,
             ids = ids,
+            // 角色人设 + 世界书命中条目。解析交给 ChatSession 做，
+            // 因为世界书要扫历史，而历史只有那边才有
+            promptSource = promptSource,
         )
     }
 

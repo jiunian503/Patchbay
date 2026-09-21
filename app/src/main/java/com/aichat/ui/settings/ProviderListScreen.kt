@@ -90,6 +90,7 @@ fun ProviderListScreen(
     onOpenPlugins: () -> Unit,
     onOpenWebSearch: () -> Unit,
     onOpenCrashLogs: () -> Unit,
+    onOpenCharacters: () -> Unit,
 ) {
     val viewModel: ProviderListViewModel = viewModel { ProviderListViewModel(container) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -166,6 +167,27 @@ fun ProviderListScreen(
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             item { PrivacyNotice() }
+
+            // 「角色」放在最前 —— 它是这一页里最常动的一节。
+            //
+            // 顺序理由是「越往上越常改」：角色卡可能每换一个话题就换一次，
+            // 而服务商配好之后基本不动。压在服务商下面的话，每次换角色
+            // 都要先划过一整列服务商卡片。
+            item { PbSectionLabel("角色") }
+            item {
+                PbNavRow(
+                    icon = PbIcons.Persona,
+                    title = "角色",
+                    body = if (state.characterCount > 0) {
+                        "有 ${state.characterCount} 个角色卡。在会话里选一个，" +
+                            "它的人设和世界书就跟着这次对话走。"
+                    } else {
+                        "写一套人设，之后每个会话都能直接选它。" +
+                            "还可以挂一本世界书：聊到相关的词才把那一段发给模型。"
+                    },
+                    onClick = onOpenCharacters,
+                )
+            }
 
             item { PbSectionLabel("记忆") }
             item {

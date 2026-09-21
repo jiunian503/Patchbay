@@ -53,6 +53,19 @@ import kotlinx.serialization.Serializable
 @Serializable data object ProviderList : NavKey
 
 /**
+ * 角色卡列表。
+ *
+ * 放在「设置」这一支下面，但它和 [PluginList] 那种「装一次就不再看」的配置
+ * 不同：**角色是用户会反复换的**。之所以还是放设置里而不是主界面，
+ * 是因为「换角色」不是每句话都要做的事 —— 一个会话选定之后通常一直用它，
+ * 会话内的切换入口在对话页顶栏。
+ */
+@Serializable data object CharacterList : NavKey
+
+/** 角色卡编辑。[characterId] 为 null 表示新建。 */
+@Serializable data class CharacterEdit(val characterId: String? = null) : NavKey
+
+/**
  * 联网搜索的设置页。
  *
  * 名字里带 `Settings` 是因为它确实只是一组配置（后端 + 地址 + 密钥），

@@ -4,6 +4,84 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
+ * v6 → v7：加角色卡与世界书，给 `conversation` 挂上角色。
+ *
+ * ## 这一版推翻了一条 v6 的判断，而且是故意的
+ *
+ * [MIGRATION_5_6] 的注释里有一节「为什么放在 `provider` 表而不是 `conversation` 表」，
+ * 理由原文是：
+ *
+ * > 放进 `conversation` 的话还要再给会话加一个编辑入口，而收益
+ * > （**同一个服务商下用不同人设**）并不确定。
+ *
+ * 那个收益现在确定了。所以提示词从「服务商的属性」变成「可复用的实体」——
+ * 不是给 `provider` 再加一列，而是新开 [CharacterEntity] 那张表。
+ * `provider.system_prompt` 保留但换了定位（见 [ProviderEntity.systemPrompt]）。
+ *
+ * **两处注释看起来矛盾是故意的**，别去「统一」它们：v6 的理由在当时成立，
+ * v7 把它推翻了，留着原文比删掉它更有用 —— 否则半年后会有人照着
+ * 「prompt 属于配置」这条把提示词又挪回 `provider`。
+ *
+ * ## `character` 表名必须带反引号
+ *
+ * `CHARACTER` 是 SQLite 的类型名关键字。手写 SQL 时一律加反引号是零成本的
+ * 保险，而且 Room 自己生成的建表 SQL 也带反引号 —— 迁移校验比对
+ * `createSql` 时两边写法一致（同 [CharacterDao] 的注释）。
+ *
+ * ## `character_id` 可空，且不加 DEFAULT
+ *
+ * `ALTER TABLE ADD COLUMN` 只在加 **NOT NULL** 列时才要求默认值
+ * （同 [MIGRATION_5_6]）。这里 `null` 本身就是有意义的取值 ——
+ * 「这个会话还没选角色」，而升级上来的老会话**全是** null。
+ * 加 `DEFAULT ''` 会造出一批「指向空字符串角色」的会话，
+ * 于是 `CharacterRepository` 还要为这个不存在的形状多写一个分支。
+ *
+ * ## 索引名必须和 Room 生成的完全一致
+ *
+ * `world_book_entry` 上的复合索引 `(character_id, order_index)` 正好覆盖
+ * `WorldBookEntryDao` 三个查询的 `WHERE` + `ORDER BY`。但索引名不能随便起：
+ * 迁移之后 Room 会拿 `PRAGMA index_list` 的结果跟实体期望的比对，
+ * 名字对不上就报 `Migration didn't properly handle`。规则是
+ * `index_<表名>_<列名>_<列名>`，**必须逐字相同**。
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // ---- character：角色卡 ----
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `character` (" +
+                "`id` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, " +
+                "`description` TEXT NOT NULL, " +
+                "`persona` TEXT NOT NULL, " +
+                "`created_at` INTEGER NOT NULL, " +
+                "`updated_at` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))"
+        )
+
+        // ---- world_book_entry：世界书条目 ----
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `world_book_entry` (" +
+                "`id` TEXT NOT NULL, " +
+                "`character_id` TEXT NOT NULL, " +
+                "`keys_json` TEXT NOT NULL, " +
+                "`content` TEXT NOT NULL, " +
+                "`enabled` INTEGER NOT NULL, " +
+                "`order_index` INTEGER NOT NULL, " +
+                "`case_sensitive` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`id`))"
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS `index_world_book_entry_character_id_order_index` " +
+                "ON `world_book_entry` (`character_id`, `order_index`)"
+        )
+
+        // ---- conversation：挂上角色 ----
+        db.execSQL("ALTER TABLE `conversation` ADD COLUMN `character_id` TEXT")
+    }
+}
+
+/**
  * v5 → v6：给 `provider` 加三个采样参数（系统提示词 / 温度 / 最大回复长度）。
  *
  * ## 三列全部可空，而且 `null` 是**有意义的取值**

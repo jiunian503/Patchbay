@@ -49,6 +49,25 @@ data class ConversationEntity(
      */
     @ColumnInfo(name = "pinned")
     val pinned: Boolean = false,
+
+    /**
+     * 这个会话选的角色卡（`character.id`）。
+     *
+     * ## 为什么可空，而且老会话全是 null
+     *
+     * 没选角色 = 不注入任何东西。所以 v6 升上来的会话（这一列一律 null）
+     * 发出的请求和升级前**逐字节相同** —— 这是这次改动最重要的向后兼容保证。
+     * 加一列 NOT NULL + 默认值也能跑，但那样就表达不出「这个会话还没选角色」
+     * 和「用户明确选了空角色」的区别，而前者才是升级后的真实状态。
+     *
+     * ## 为什么不建外键
+     *
+     * 和本文件其它列一致。角色被删掉时，`CharacterRepository` 会在同一个
+     * 事务里把引用它的会话这一列清成 null（而不是删会话）—— 用户删了一个
+     * 角色卡，不该连带着把用它的聊天记录也删了。
+     */
+    @ColumnInfo(name = "character_id")
+    val characterId: String? = null,
 )
 
 /** 会话列表项的查询投影 —— 消息数由 JOIN 聚合出来，不额外查一次。 */

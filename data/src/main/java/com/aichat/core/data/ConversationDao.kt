@@ -70,6 +70,26 @@ interface ConversationDao {
     @Query("UPDATE conversation SET provider_id = :providerId, model = :model, updated_at = :now WHERE id = :id")
     suspend fun setRoute(id: String, providerId: String?, model: String?, now: Long)
 
+    /**
+     * 会话选的角色卡。null = 这个会话不注入任何角色提示词。
+     *
+     * **刻意不更新 `updated_at`**，理由和 [setPinned] 一样：换角色不是
+     * 「说了一句话」。把它算成活跃会让列表顺序莫名其妙地变 ——
+     * 用户只是去设置里换了个角色，会话列表却重排了。
+     */
+    @Query("UPDATE conversation SET character_id = :characterId WHERE id = :id")
+    suspend fun setCharacter(id: String, characterId: String?)
+
+    /**
+     * 清掉所有引用了这个角色的会话。删角色时调用。
+     *
+     * **不能改成「把这些会话一起删掉」** —— 用户删了一张角色卡，
+     * 不该连带着把用它的聊天记录也带走。会话和消息全部保留，
+     * 只是不再注入任何东西（行为和 v6 升上来的老会话一样）。
+     */
+    @Query("UPDATE conversation SET character_id = NULL WHERE character_id = :characterId")
+    suspend fun clearCharacter(characterId: String)
+
     @Query("DELETE FROM conversation WHERE id = :id")
     suspend fun delete(id: String)
 

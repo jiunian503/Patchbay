@@ -79,6 +79,7 @@ import com.aichat.di.ProviderChoice
 import com.aichat.theme.MonoLabelStyle
 import com.aichat.theme.MonoTextStyle
 import com.aichat.theme.Space
+import com.aichat.ui.characters.CharacterPickerAction
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbTonalButton
 import dev.chrisbanes.haze.HazeStyle
@@ -328,6 +329,9 @@ fun ChatScreen(
                     }
                 },
                 actions = {
+                    // 角色选择器。按钮和弹窗都收在这个组件里 ——
+                    // 弹窗是个独立窗口，写在 RowScope 里照样能正常显示
+                    CharacterPickerAction(container = container, conversationId = conversationId)
                     IconButton(onClick = onOpenSettings) {
                         Icon(PbIcons.Settings, contentDescription = "设置")
                     }

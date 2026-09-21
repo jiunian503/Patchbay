@@ -129,6 +129,49 @@ class AppSettings(context: Context) {
         prefs.edit().putString(KEY_WEB_SEARCH_ENDPOINT, url).apply()
     }
 
+    /**
+     * 「会话行还没建出来时先选好的角色」。没选过（或者已经提升进库了）返回 null。
+     *
+     * ## 为什么这个状态只能放在设置里
+     *
+     * 角色本身存在 `conversation` 表的 `character_id` 列上。但会话行是
+     * **第一条消息发出去时**才建的，而用户可以在那之前就点角色选择器 ——
+     * 那时 `UPDATE ... WHERE id = ?` 影响 0 行，选择会被静默丢掉。
+     *
+     * 另外两种存法都不行：选角色时顺手建会话行会在列表里留一个没说过话的
+     * 幽灵会话；让 `ensureConversation` 接受角色 id 则等于把「角色」这个概念
+     * 塞进 `:chat`，破坏模块边界。所以先存在这儿，等会话行一出现就搬过去
+     * （搬运的判断在 `resolveCharacterChoice`，是个纯函数，有单测）。
+     *
+     * ## 为什么连会话 id 一起存
+     *
+     * 待定的是「**那个**还没落库的会话该用谁」。只存角色 id 的话，用户选完
+     * 又去别的会话里发消息，那个角色会被误用到别人身上。
+     */
+    fun pendingCharacterConversation(): String? =
+        prefs.getString(KEY_PENDING_CHARACTER_CONV, null)
+
+    fun pendingCharacter(): String? = prefs.getString(KEY_PENDING_CHARACTER, null)
+
+    /** 两个参数都传 null 就是清空。 */
+    fun setPendingCharacter(conversationId: String?, characterId: String?) {
+        prefs
+            .edit()
+            .apply {
+                if (conversationId == null) {
+                    remove(KEY_PENDING_CHARACTER_CONV)
+                } else {
+                    putString(KEY_PENDING_CHARACTER_CONV, conversationId)
+                }
+                if (characterId == null) {
+                    remove(KEY_PENDING_CHARACTER)
+                } else {
+                    putString(KEY_PENDING_CHARACTER, characterId)
+                }
+            }
+            .apply()
+    }
+
     companion object {
         /**
          * 偏好文件名。
@@ -151,5 +194,16 @@ class AppSettings(context: Context) {
         private const val KEY_WEB_SEARCH_BACKEND = "web_search_backend"
 
         private const val KEY_WEB_SEARCH_ENDPOINT = "web_search_endpoint"
+
+        /**
+         * 「会话行还没建出来时先选好的角色」。
+         *
+         * 两个键配对使用：一个记住**是哪个会话**，一个记住**选了谁**。
+         * 只存角色 id 的话，用户选完又跑去别的会话发消息，那个角色会被
+         * 误用到别人身上 —— 详见 [resolveCharacterChoice]。
+         */
+        private const val KEY_PENDING_CHARACTER_CONV = "pending_character_conversation"
+
+        private const val KEY_PENDING_CHARACTER = "pending_character_id"
     }
 }

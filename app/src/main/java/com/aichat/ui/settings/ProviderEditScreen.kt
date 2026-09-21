@@ -112,10 +112,17 @@ fun ProviderEditScreen(
             OutlinedTextField(
                 value = state.systemPrompt,
                 onValueChange = viewModel::onSystemPromptChange,
-                label = { Text("系统提示词（可留空）") },
-                placeholder = { Text("例如：你是简洁的助手，回答不超过三句话。") },
-                // 「所有会话都生效」这句必须写：不写的话用户会以为只影响当前会话
-                supportingText = { Text("用这个服务商的所有会话都生效。留空则不发送系统消息") },
+                label = { Text("附加提示词（可留空）") },
+                placeholder = { Text("例如：回答不超过三句话。") },
+                // 这段说明要同时回答三件事：对谁生效、排在哪儿、和角色卡什么关系。
+                // 原来只写了「所有会话都生效」，而 v7 之后人设改由角色卡提供 ——
+                // 不写清顺序的话，用户会以为这里写的人设被角色卡顶掉了
+                supportingText = {
+                    Text(
+                        "用这个服务商的所有会话都生效，排在角色人设和世界书之后 ——" +
+                            "适合写输出格式、语言这类通用要求。留空则不追加。"
+                    )
+                },
                 minLines = 3,
                 maxLines = 6,
                 modifier = Modifier.fillMaxWidth(),

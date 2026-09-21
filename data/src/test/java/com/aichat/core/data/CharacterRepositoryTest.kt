@@ -1,0 +1,257 @@
+package com.aichat.core.data
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * [CharacterRepository] 的落盘规则。
+ *
+ * 全部跑在假 DAO 上，秒级完成 —— 这正是把 DAO 做成接口的意义。
+ * 真机上另有一条 `AppDatabaseMigrationTest` 验 6→7 的迁移，两者分工不同：
+ * 这里验「逻辑对不对」，那边验「库建得对不对」。
+ */
+class CharacterRepositoryTest {
+
+    private val characters = FakeCharacterDao()
+    private val entries = FakeWorldBookEntryDao()
+    private val conversations = FakeConversationDao(FakeMessageDao())
+
+    private var nextId = 0
+    private var now = 1_000L
+
+    private val repo = CharacterRepository(
+        characters = characters,
+        entries = entries,
+        conversations = conversations,
+        tx = NoTransactionRunner,
+        newId = { "id-${nextId++}" },
+        clock = { now },
+    )
+
+    private fun draft(
+        id: String? = null,
+        name: String = "助手",
+        description: String = "",
+        persona: String = "你是一位诗人。",
+        entries: List<WorldBookEntryDraft> = emptyList(),
+    ) = CharacterDraft(
+        id = id,
+        name = name,
+        description = description,
+        persona = persona,
+        entries = entries,
+    )
+
+    @Test
+    fun `新建角色返回新 id 并落库`() = runTest {
+        val id = repo.save(draft())
+        assertEquals("id-0", id)
+
+        val row = characters.rows.getValue(id)
+        assertEquals("助手", row.name)
+        assertEquals("你是一位诗人。", row.persona)
+        assertEquals(1_000L, row.createdAt)
+        assertEquals(1_000L, row.updatedAt)
+    }
+
+    @Test
+    fun `角色名为空时抛异常，且不落库`() = runTest {
+        val thrown = runCatching { repo.save(draft(name = "   ")) }.exceptionOrNull()
+        assertEquals("角色名不能为空", thrown?.message)
+        assertTrue(characters.rows.isEmpty())
+    }
+
+    @Test
+    fun `角色名与简介两端空白被裁掉`() = runTest {
+        val id = repo.save(draft(name = "  老王  ", description = " 一个测试角色 "))
+        val row = characters.rows.getValue(id)
+        assertEquals("老王", row.name)
+        assertEquals("一个测试角色", row.description)
+    }
+
+    @Test
+    fun `再次保存保留 created_at，只刷新 updated_at`() = runTest {
+        val id = repo.save(draft())
+        val createdAt = characters.rows.getValue(id).createdAt
+
+        now = 9_999L
+        repo.save(draft(id = id, name = "改了名"))
+
+        val row = characters.rows.getValue(id)
+        assertEquals(createdAt, row.createdAt)
+        assertEquals(9_999L, row.updatedAt)
+        assertEquals("改了名", row.name)
+    }
+
+    @Test
+    fun `词条按列表下标编号`() = runTest {
+        val id = repo.save(
+            draft(
+                entries = listOf(
+                    WorldBookEntryDraft(keys = listOf("a"), content = "A"),
+                    WorldBookEntryDraft(keys = listOf("b"), content = "B"),
+                    WorldBookEntryDraft(keys = listOf("c"), content = "C"),
+                )
+            )
+        )
+
+        val stored = entries.rows.values.filter { it.characterId == id }.sortedBy { it.orderIndex }
+        assertEquals(listOf(0, 1, 2), stored.map { it.orderIndex })
+        assertEquals(listOf("A", "B", "C"), stored.map { it.content })
+    }
+
+    @Test
+    fun `滤掉残条之后重新编号，order_index 不留空洞`() = runTest {
+        val id = repo.save(
+            draft(
+                entries = listOf(
+                    WorldBookEntryDraft(keys = listOf("a"), content = "A"),
+                    // 触发词和内容都空 = 用户新建了一条还没填
+                    WorldBookEntryDraft(),
+                    WorldBookEntryDraft(keys = listOf("c"), content = "C"),
+                )
+            )
+        )
+
+        val stored = entries.rows.values.filter { it.characterId == id }.sortedBy { it.orderIndex }
+        // 用 mapIndexedNotNull 直接编号的话这里会是 0 和 2
+        assertEquals(listOf(0, 1), stored.map { it.orderIndex })
+        assertEquals(listOf("A", "C"), stored.map { it.content })
+    }
+
+    @Test
+    fun `触发词两端空白被裁掉，空串被滤掉`() = runTest {
+        val id = repo.save(
+            draft(entries = listOf(WorldBookEntryDraft(keys = listOf(" 老王 ", "", "  "), content = "内容")))
+        )
+        val row = entries.rows.values.single { it.characterId == id }
+        assertEquals(listOf("老王"), repo.entriesFor(id).single().keys)
+        assertEquals("[\"老王\"]", row.keysJson)
+    }
+
+    @Test
+    fun `再次保存时旧词条被整体替换`() = runTest {
+        val id = repo.save(
+            draft(entries = listOf(WorldBookEntryDraft(keys = listOf("a"), content = "A")))
+        )
+        assertEquals(1, entries.rows.size)
+
+        repo.save(draft(id = id, entries = listOf(WorldBookEntryDraft(keys = listOf("b"), content = "B"))))
+
+        // 旧的那条必须没了 —— 逐条 diff 的话，改一下触发词再改回来
+        // 会被判成「没变」，而中间那次顺序变化是用户拖出来的、要保留
+        assertEquals(1, entries.rows.size)
+        assertEquals(listOf("B"), repo.entriesFor(id).map { it.content })
+    }
+
+    @Test
+    fun `不带词条保存会清空该角色的全部词条`() = runTest {
+        val id = repo.save(
+            draft(entries = listOf(WorldBookEntryDraft(keys = listOf("a"), content = "A")))
+        )
+        repo.save(draft(id = id, entries = emptyList()))
+        assertTrue(repo.entriesFor(id).isEmpty())
+    }
+
+    @Test
+    fun `读出来的词条已按 order_index 排好`() = runTest {
+        val id = repo.save(
+            draft(
+                entries = listOf(
+                    WorldBookEntryDraft(keys = listOf("1"), content = "第一"),
+                    WorldBookEntryDraft(keys = listOf("2"), content = "第二"),
+                )
+            )
+        )
+        assertEquals(listOf("第一", "第二"), repo.entriesFor(id).map { it.content })
+    }
+
+    @Test
+    fun `触发词以 List 形态读出，不是 JSON 字符串`() = runTest {
+        val id = repo.save(
+            draft(entries = listOf(WorldBookEntryDraft(keys = listOf("老王", "王叔"), content = "C")))
+        )
+        assertEquals(listOf("老王", "王叔"), repo.entriesFor(id).single().keys)
+    }
+
+    @Test
+    fun `坏掉的 keys_json 不抛异常，返回空触发词`() = runTest {
+        entries.rows["broken"] = WorldBookEntryEntity(
+            id = "broken",
+            characterId = "c1",
+            keysJson = "{这不是 JSON",
+            content = "内容",
+            orderIndex = 0,
+        )
+        // 一份写坏的 JSON 最坏只该让「这一条世界书不生效」，
+        // 而不是让整个会话发不出消息
+        assertTrue(repo.entriesFor("c1").single().keys.isEmpty())
+    }
+
+    @Test
+    fun `删角色会同时删掉它的词条`() = runTest {
+        val id = repo.save(
+            draft(entries = listOf(WorldBookEntryDraft(keys = listOf("a"), content = "A")))
+        )
+        repo.delete(id)
+        assertTrue(characters.rows.isEmpty())
+        assertTrue(entries.rows.isEmpty())
+    }
+
+    @Test
+    fun `删角色只清空会话的引用，不删会话本身`() = runTest {
+        val id = repo.save(draft())
+        conversations.rows["conv-1"] = ConversationEntity(
+            id = "conv-1",
+            title = "一次聊天",
+            createdAt = 1L,
+            updatedAt = 1L,
+            characterId = id,
+        )
+
+        repo.delete(id)
+
+        // 用户删了一张角色卡，不该连带着把用它的聊天记录一起带走
+        val conv = conversations.rows.getValue("conv-1")
+        assertNull(conv.characterId)
+        assertEquals("一次聊天", conv.title)
+    }
+
+    @Test
+    fun `清空会话引用时不碰 updated_at`() = runTest {
+        val id = repo.save(draft())
+        conversations.rows["conv-1"] = ConversationEntity(
+            id = "conv-1",
+            title = "t",
+            createdAt = 1L,
+            updatedAt = 555L,
+            characterId = id,
+        )
+
+        repo.delete(id)
+
+        // 换角色/删角色都不是「说了一句话」，改 updated_at 会让
+        // 会话列表按「最后活跃时间」排序的结果莫名其妙地变
+        assertEquals(555L, conversations.rows.getValue("conv-1").updatedAt)
+    }
+
+    @Test
+    fun `列表按创建时间倒序`() = runTest {
+        now = 1L
+        repo.save(draft(name = "早"))
+        now = 2L
+        repo.save(draft(name = "晚"))
+
+        assertEquals(listOf("晚", "早"), repo.list().map { it.name })
+    }
+
+    @Test
+    fun `新建时 description 与 persona 可以为空`() = runTest {
+        // 用户先建个壳、人设回头再写，这条路必须走得通
+        val id = repo.save(draft(description = "", persona = ""))
+        assertEquals("", characters.rows.getValue(id).persona)
+    }
+}

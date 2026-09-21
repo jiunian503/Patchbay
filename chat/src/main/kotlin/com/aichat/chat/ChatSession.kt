@@ -79,6 +79,17 @@ class ChatSession(
      * 400ms 是个折中 —— 比人眼感知「卡顿」的阈值低，又比 token 到达频率低两个数量级。
      */
     private val persistIntervalMs: Long = DEFAULT_PERSIST_INTERVAL_MS,
+
+    /**
+     * 每轮开始前解析要注入的系统提示词（角色人设 + 世界书命中条目）。
+     *
+     * **默认 `null`**：不注入，行为与加这个参数之前完全一样。现有测试
+     * 一个都不用改 —— 这是刻意的，这个能力是加法不是替换。
+     *
+     * 放在 `ChatSession` 而不是 `ChatViewModel` 里，是因为解析**需要历史**
+     * （世界书就是扫历史命中的），而历史只有 [reply] 里才有。
+     */
+    private val promptSource: SystemPromptSource? = null,
 ) {
 
     /**
@@ -186,6 +197,16 @@ class ChatSession(
     private fun reply(conversationId: String, config: ChatConfig): Flow<ChatEvent> = flow {
         val history = store.history(conversationId)
 
+        // 角色人设与世界书在这里解析 —— 它要扫历史，而历史只有这里才有
+        // （send 是先落库再读历史，所以本次输入已经在 history 末尾了）。
+        // send / editAndResend / regenerate 三条入口全部经过 reply()，
+        // 所以「选中的角色每轮都生效」只需要改这一处。
+        val effective = promptSource
+            ?.resolve(conversationId, history)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { config.copy(injectedPrompt = it) }
+            ?: config
+
         /** 本轮正在写的 assistant 行。null = 本轮还没产生任何输出。 */
         var record: ReplyRecord? = null
         var lastPersistAt = clock()
@@ -212,7 +233,7 @@ class ChatSession(
         suspend fun ensure(): ReplyRecord = record ?: ReplyRecord(
             id = ids.next(),
             conversationId = conversationId,
-            model = config.model,
+            model = effective.model,
             createdAt = clock(),
         ).also {
             record = it
@@ -221,7 +242,7 @@ class ChatSession(
         }
 
         try {
-            engine.send(history, config).collect { event ->
+            engine.send(history, effective).collect { event ->
                 emit(event)
 
                 when (event) {

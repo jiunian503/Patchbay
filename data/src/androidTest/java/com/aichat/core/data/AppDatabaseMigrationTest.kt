@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 /**
  * 迁移测试：**在设备上**把老版本的库一路升到当前版本，验证老数据无损。
  *
- * 现在覆盖 v1→v2→v3→v4→v5→v6，每一跳单独测一次，另外再加一条「v1 直迁到最新」——
+ * 现在覆盖 v1→v2→v3→v4→v5→v6→v7，每一跳单独测一次，另外再加一条「v1 直迁到最新」——
  * 分段全过不代表连起来能过（某一步可能依赖了上一步没建立的列）。
  *
  * ## 为什么必须有这个测试
@@ -32,7 +32,7 @@ import org.junit.runner.RunWith
  * ## 它靠什么工作
  *
  * `MigrationTestHelper` 会从 androidTest 的 assets 里读导出的 schema JSON
- * （`schemas/com.aichat.core.data.AppDatabase/` 下的 `1.json` … `6.json`，
+ * （`schemas/com.aichat.core.data.AppDatabase/` 下的 `1.json` … `7.json`，
  * 由 `data/build.gradle.kts` 里那句 `assets.srcDir` 挂进来），据此建出真正的
  * 老版本库、跑迁移、再拿 `PRAGMA table_info` 跟当前版本的期望逐列比对。
  *
@@ -447,27 +447,150 @@ class AppDatabaseMigrationTest {
         db.close()
     }
 
+    // ---------------------------------------------------------------- v6 → v7
+
     @Test
-    fun `从v1一路升到v6`() {
+    fun `v6升到v7后老数据还在且多了角色与世界书表`() {
+        // v7 加两张表 + 一列。加表和加列都要验证：`CREATE TABLE` 的 SQL、
+        // 列的顺序、索引名，任何一处和 Room 生成的差一个字，
+        // runMigrationsAndValidate 都会报 `Migration didn't properly handle`
+        helper.createDatabase(TEST_DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO conversation (id, title, provider_id, model, created_at, updated_at, pinned) " +
+                    "VALUES ('c1', '会议纪要', 'p1', 'deepseek-chat', 100, 300, 1)"
+            )
+            db.execSQL(
+                "INSERT INTO provider (id, name, base_url, model, extra_headers, " +
+                    "connect_timeout_seconds, read_timeout_seconds, include_usage, " +
+                    "is_default, created_at, updated_at, temperature, max_tokens, system_prompt) " +
+                    "VALUES ('p1', '深度求索', 'api.deepseek.com', 'deepseek-chat', NULL, 30, 300, 0, 1, " +
+                    "100, 200, NULL, NULL, '回答不超过三句话。')"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_6_7)
+
+        // 老会话还在，而且 character_id 必须是 NULL ——
+        // NULL = 「这个会话还没选角色」，正是升级后所有老会话的真实状态。
+        // 给一个 `DEFAULT ''` 会造出「指向空字符串角色」的会话，
+        // 而那是个不存在的形状，下游还得为它多写一个分支
+        db.query(
+            "SELECT title, updated_at, pinned, character_id FROM conversation WHERE id = 'c1'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("会议纪要", c.getString(0))
+            // updated_at 不能被迁移动过 —— 它是「最后活跃时间」，
+            // 迁移顺手刷一遍会让所有会话都变成「刚刚」
+            assertEquals(300L, c.getLong(1))
+            assertEquals(1, c.getInt(2))
+            assertTrue("老会话的 character_id 该是 NULL", c.isNull(3))
+        }
+
+        // 服务商那条提示词不能丢 —— 它这一版换了个定位（「附加提示词」），
+        // 但**没有换列**，老用户填过的内容要原样还在
+        db.query("SELECT system_prompt FROM provider WHERE id = 'p1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("回答不超过三句话。", c.getString(0))
+        }
+
+        // 两张新表该是空的
+        db.query("SELECT COUNT(*) FROM `character`").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(0, c.getInt(0))
+        }
+        db.query("SELECT COUNT(*) FROM world_book_entry").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(0, c.getInt(0))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `v7的角色与世界书可以写读`() {
+        helper.createDatabase(TEST_DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO conversation (id, title, created_at, updated_at, pinned) " +
+                    "VALUES ('c1', '', 1, 1, 0)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, MIGRATION_6_7)
+
+        db.execSQL(
+            "INSERT INTO `character` (id, name, description, persona, created_at, updated_at) " +
+                "VALUES ('ch1', '诗人', '照着古诗捏的', '你是一位诗人。', 1, 1)"
+        )
+        db.execSQL(
+            "INSERT INTO world_book_entry " +
+                "(id, character_id, keys_json, content, enabled, order_index, case_sensitive) " +
+                "VALUES ('e1', 'ch1', '[\"老王\",\"王叔\"]', '老王是镇上的铁匠。', 1, 0, 0)"
+        )
+        db.execSQL("UPDATE conversation SET character_id = 'ch1' WHERE id = 'c1'")
+
+        db.query(
+            "SELECT c.name, c.persona, e.keys_json, e.enabled, e.order_index, e.case_sensitive " +
+                "FROM `character` c JOIN world_book_entry e ON e.character_id = c.id WHERE c.id = 'ch1'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("诗人", c.getString(0))
+            assertEquals("你是一位诗人。", c.getString(1))
+            // 触发词存的是 JSON 数组原文。写坏了由 Repository 兜底成空列表，
+            // 但那不代表这里可以随便写 —— 它是**用户数据的投影**
+            assertEquals("[\"老王\",\"王叔\"]", c.getString(2))
+            assertEquals(1, c.getInt(3))
+            assertEquals(0, c.getInt(4))
+            assertEquals(0, c.getInt(5))
+        }
+
+        // 会话确实挂上了角色
+        db.query("SELECT character_id FROM conversation WHERE id = 'c1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("ch1", c.getString(0))
+        }
+
+        // 复合索引必须真的建出来了，而且名字和 Room 生成的一致 ——
+        // 名字对不上，迁移之后 Room 校验 schema 时会报
+        // 「实体期望一个不存在的索引」
+        db.query(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' " +
+                "AND name = 'index_world_book_entry_character_id_order_index'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("复合索引必须存在", 1, c.getInt(0))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `从v1一路升到v7`() {
         // 用户可能是从最早的版本一路升上来的，中间每一跳都要能过。
         // 分段测都通过不代表连起来能过 —— 比如某一步依赖了上一步没建立的列
         helper.createDatabase(TEST_DB, 1).close()
 
         val db = helper.runMigrationsAndValidate(
             TEST_DB,
-            6,
+            7,
             true,
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
 
         // v1 建的消息会补出会话行，那一行的 pinned 必须是 0 而不是 NULL
         db.query("SELECT COUNT(*) FROM conversation WHERE pinned IS NULL").use { c ->
             assertTrue(c.moveToFirst())
             assertEquals("不能有 pinned 为空的行", 0, c.getInt(0))
+        }
+        // 一路升上来的会话，character_id 全是 NULL（老用户没选过角色）——
+        // 这正是「升级后行为不变」的判据
+        db.query("SELECT COUNT(*) FROM conversation WHERE character_id IS NOT NULL").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("老会话不该凭空多出一个角色", 0, c.getInt(0))
         }
 
         db.close()

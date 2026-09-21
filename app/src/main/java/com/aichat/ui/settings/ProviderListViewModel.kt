@@ -73,6 +73,14 @@ data class ProviderListUiState(
      * 他再想看就得重新问一次远端。
      */
     val updateDialog: Boolean = false,
+
+    /**
+     * 角色卡数量。
+     *
+     * 只在「角色」那一行的说明里用。有角色和没有角色，那段话该说的东西
+     * 完全不同：一个是「进去选一个」，另一个是「这东西是干什么的」。
+     */
+    val characterCount: Int = 0,
 )
 
 class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
@@ -118,6 +126,9 @@ class ProviderListViewModel(private val container: AppContainer) : ViewModel() {
                         ?.let { newest ->
                             CrashSummary(count = crashes.size, latestAt = newest.epochMillis)
                         },
+                    // 只数个数。这一行不需要角色名，读全表回来只为 size
+                    // 是可接受的 —— 一张角色卡几十字节，用户也不会建几百个
+                    characterCount = container.characters.list().size,
                     // 只在**还没查过**时填版本号。refresh() 也会被 setDefault /
                     // delete 调到，无条件覆盖的话，用户查出来的结论会被一次
                     // 无关的刷新冲掉 —— 表现为「刚查到有新版本，改了个默认服务商
