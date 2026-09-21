@@ -56,6 +56,33 @@ fun navEntryDecorators(): List<NavEntryDecorator<Any>> = listOf(
 )
 
 /**
+ * 返回栈「能不能弹」—— 抽成纯函数是为了能直接单测（`NavigationBackStackTest`）。
+ *
+ * 判据是 **`size > 1`**，不是 `isNotEmpty()`：`NavDisplay(backStack = …)` 的第一行
+ * 就是 `require(backStack.isNotEmpty())`，空栈它会直接抛
+ * `IllegalArgumentException: NavDisplay backstack cannot be empty`。
+ * 来龙去脉见 [MainNavigation] 上面「返回栈：永远不弹空」那一段。
+ */
+internal fun canPopBackStack(size: Int): Boolean = size > 1
+
+/**
+ * 唯一的出栈入口。**栈里只剩一项时什么都不做** —— 那一项就是首页，
+ * 这时按返回该由系统把 Activity 结束掉（Nav3 的 `isBackEnabled` 在栈深 1 时是
+ * false，它不拦，事件会走到系统默认处理），而不是把这个栈弹空。
+ *
+ * 为什么收成一个函数、而不是在十二处 `onBack` 里各写一遍：漏掉任何一处都是
+ * **同一个崩溃**，而且崩在 recomposition 里，堆栈上看不出是谁弹的。
+ *
+ * ⚠️ **不含**「先弹再压」那种换栈顶的写法（`onSwitchConversation` /
+ * `onNewConversation` / `onInstalled`）—— 那三处是 `removeLastOrNull()` 紧跟
+ * `add(...)`，**在同一段同步代码里**；Compose 的重组按帧调度，中间那个瞬时空栈
+ * 没有观察者看得到，所以照旧不动。
+ */
+internal fun <T> popBackStack(backStack: MutableList<T>) {
+    if (canPopBackStack(backStack.size)) backStack.removeLastOrNull()
+}
+
+/**
  * 导航图。十个目的地，没有嵌套。
  *
  * （对话 / 搜索 / 服务商列表 / 服务商编辑 / 联网搜索 / 插件列表 / 插件安装 /
@@ -84,11 +111,29 @@ fun navEntryDecorators(): List<NavEntryDecorator<Any>> = listOf(
  * 用 CompositionLocal 反而会把「谁依赖什么」藏起来，
  * 屏幕的可测性也会变差（测试时要记得提供局部值）。
  *
- * ## 返回栈
+ * ## 返回栈：**永远不弹空**
  *
- * 用 `removeLastOrNull()` 而不是 `navigateUp()`：Nav3 的返回栈就是一个
- * 普通列表，越界时返回 null 而不是抛异常 —— 在「连按两次返回」这种
- * 竞态下更稳。
+ * 出栈一律走 [popBackStack]，它只在栈深 > 1 时才弹。
+ *
+ * ⚠️ 这里原来写的是「用 `removeLastOrNull()` 而不是 `navigateUp()`：
+ * 越界时返回 null 而不是抛异常 —— 在『连按两次返回』这种竞态下更稳」。
+ * **那句话瞄错了异常。** `removeLastOrNull()` 防的是 `NoSuchElementException`，
+ * 而 Nav3 真正会抛的是 `IllegalArgumentException: NavDisplay backstack cannot be empty`
+ * —— `NavDisplay(backStack = …)` 的第一行就是 `require(backStack.isNotEmpty())`。
+ * 也就是说：**空栈它照样崩**，而且崩在 recomposition 里（堆栈上是
+ * `Recomposer.performRecompose` → `NavDisplay`），看不出是谁弹的。
+ *
+ * 线上撞到过一次（v1.2）。两条路都能把栈弹空，[popBackStack] 一次堵住两条：
+ *
+ * 1. **屏幕自己的返回箭头**（下面那些 `onBack = …`）**不受 Nav3 的
+ *    `isBackEnabled` 管** —— 那个门控只覆盖系统返回。出栈转场期间旧页面
+ *    仍然可点，连点两下就是连弹两次。
+ * 2. Nav3 内部 `onBackCompleted` 里的
+ *    `repeat(entries.size - scene.previousEntries.size) { onBack() }` ——
+ *    它自己在源码注释里承认 `enabled` 可能「在同一帧里过期」，
+ *    那时它按**旧的** entries 数去弹**新的**栈。
+ *
+ * 判据与还原过程见 SKILL.md **§98**。
  *
  * 注意没有 `safeDrawingPadding()`：每个屏幕都有自己的 Scaffold，
  * 而 Scaffold 会自己处理系统栏内边距。外面再包一层会导致顶栏被推下去
@@ -139,7 +184,7 @@ fun MainNavigation(container: AppContainer) {
 
     NavDisplay(
         backStack = backStack,
-        onBack = { backStack.removeLastOrNull() },
+        onBack = { popBackStack(backStack) },
         entryDecorators = navEntryDecorators(),
         entryProvider =
             entryProvider {
@@ -160,7 +205,7 @@ fun MainNavigation(container: AppContainer) {
                         // 返回栈里只有它自己 → 它就是首页 → 顶栏给汉堡；
                         // 否则是从搜索页压上来的 → 给返回箭头
                         showBack = backStack.size > 1,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         // 换会话是**替换**栈顶，不是压在它上面：压上去的话，
                         // 用户逛过五个会话之后要按五次返回才能退出 App，
                         // 而每一次返回看到的都是一个他已经不关心的旧会话
@@ -185,7 +230,7 @@ fun MainNavigation(container: AppContainer) {
                 entry<ConversationSearch> {
                     ConversationSearchScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         // 带上 messageId，对话页会把列表滚到命中的那一条。
                         // 只跳到会话底部是不够的 —— 长会话里还得自己翻。
                         // query 一起带过去：定位到了但正文里不标出那个词，
@@ -199,7 +244,7 @@ fun MainNavigation(container: AppContainer) {
                 entry<ProviderList> {
                     ProviderListScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         onEdit = { providerId -> backStack.add(ProviderEdit(providerId)) },
                         onOpenPlugins = { backStack.add(PluginList) },
                         onOpenWebSearch = { backStack.add(WebSearchSettings) },
@@ -211,7 +256,7 @@ fun MainNavigation(container: AppContainer) {
                 entry<CharacterList> {
                     CharacterListScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         onEdit = { characterId -> backStack.add(CharacterEdit(characterId)) },
                     )
                 }
@@ -220,21 +265,21 @@ fun MainNavigation(container: AppContainer) {
                     CharacterEditScreen(
                         container = container,
                         characterId = key.characterId,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                     )
                 }
 
                 entry<CrashLogs> {
                     CrashLogScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                     )
                 }
 
                 entry<WebSearchSettings> {
                     WebSearchSettingsScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                     )
                 }
 
@@ -242,14 +287,14 @@ fun MainNavigation(container: AppContainer) {
                     ProviderEditScreen(
                         container = container,
                         providerId = key.providerId,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                     )
                 }
 
                 entry<PluginList> {
                     PluginListScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         onOpenPlugin = { pluginId -> backStack.add(PluginDetail(pluginId)) },
                         onInstall = { backStack.add(PluginInstall) },
                     )
@@ -258,7 +303,7 @@ fun MainNavigation(container: AppContainer) {
                 entry<PluginInstall> {
                     PluginInstallScreen(
                         container = container,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                         // 装完直接进详情页：用户下一步多半是去填配置，
                         // 而不是回列表再点一次。同时把安装页从返回栈里去掉 ——
                         // 从详情页返回时回到列表，比回到一个已经装过的表单合理
@@ -273,7 +318,7 @@ fun MainNavigation(container: AppContainer) {
                     PluginDetailScreen(
                         container = container,
                         pluginId = key.pluginId,
-                        onBack = { backStack.removeLastOrNull() },
+                        onBack = { popBackStack(backStack) },
                     )
                 }
             },

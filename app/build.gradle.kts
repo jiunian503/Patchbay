@@ -81,10 +81,11 @@ android {
         minSdk = 28
         targetSdk = 36
         // `versionCode` **每次发版 +1，不可回退**（RELEASING.md 第 5 步）。
-        // v1.1 之后加了：「设置 → 关于 → 检查更新」（`:domain` 版本比较 / `:network`
-        // 打 `/releases/latest` / `:app` 的状态与对话框）。所以这一版是 1.2。
-        versionCode = 3
-        versionName = "1.2"
+        // v1.2 之后攒了四样：自定义角色 + 世界书、PNG 角色卡导入（`chara`/`ccv3` 块）、
+        // 开场白（新会话里角色先开口，请求仍以 user 开头），以及一个修复 ——
+        // 「新会话里换服务商被静默丢掉」。所以这一版是 1.3。
+        versionCode = 4
+        versionName = "1.3"
         // 跑 app 的 instrumented test（NavScopingTest）需要显式指定，
         // 别依赖 AGP 的默认值 —— 默认值改了的话报错是「找不到 runner」，
         // 和「测试没配好」长得一模一样，查起来要绕一圈
