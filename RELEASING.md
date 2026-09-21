@@ -198,6 +198,14 @@ python tools/elf_align.py app/build/outputs/apk/release/app-release.apk
 > 会以为「一样」。判定一律用 `aapt2 dump badging` 直接读
 > `versionCode` / `versionName`（见第 6 步）。判据见 SKILL.md **§92 十五⑤**。
 
+> ⚠️ **README 里写死的体积数字要跟着改。** 「32 位 only 的老设备装不上」那段引用了
+> 1.0 的字节数和**这一版**的字节数 —— 没有任何测试盯着它们（`NetworkEgressTest` 只守
+> 「出网请求只有 N 种」那一句）。实测踩过：v1.2 时那句写的是「大了约 1.2 MB」，
+> 到 v1.4 实际已经是 1.45 MB，中间隔了两版没人动它。
+> 改完核一遍：`grep -n "APK 是" README.md`。
+> 引用体积**一律写字节数**，别写 MB —— 这个仓库里 MB 有 10⁶ 和 MiB 两种用法，
+> 同一个数按两种算法写出来像两个数。
+
 ### 6. 构建 + 两条验收
 
 ```bash
