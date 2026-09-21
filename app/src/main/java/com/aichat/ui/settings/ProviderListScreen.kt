@@ -91,6 +91,7 @@ fun ProviderListScreen(
     onOpenWebSearch: () -> Unit,
     onOpenCrashLogs: () -> Unit,
     onOpenCharacters: () -> Unit,
+    onOpenTerminal: () -> Unit,
 ) {
     val viewModel: ProviderListViewModel = viewModel { ProviderListViewModel(container) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -219,6 +220,15 @@ fun ProviderListScreen(
                         "已开启：${state.webSearchLabel}。模型可以自己决定搜什么。"
                     },
                     onClick = onOpenWebSearch,
+                )
+            }
+            item {
+                PbNavRow(
+                    icon = PbIcons.Terminal,
+                    title = "终端",
+                    body = "跑系统自带的命令（ls / cat / grep / ps / df / ip …），" +
+                        "不用装任何东西。命令以这个 App 的身份运行。",
+                    onClick = onOpenTerminal,
                 )
             }
 

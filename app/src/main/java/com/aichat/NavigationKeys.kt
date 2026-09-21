@@ -17,6 +17,26 @@ import kotlinx.serialization.Serializable
 @Serializable data object ConversationSearch : NavKey
 
 /**
+ * 内置浏览器。**目前只从消息正文里的链接进** —— 具体在哪一层把
+ * `LocalUriHandler` 换掉，见 `Navigation.kt` 里 `entry<Chat>` 那段。
+ *
+ * ## 为什么直接把 URL 放进键里
+ *
+ * [Chat] 上面写着「只带 id，不带消息内容」，理由是内容会过期。
+ * 这里不适用：**URL 不会过期**，它本来就是这次导航的全部参数。
+ * 真要说的话，返回栈里躺着的那份 URL 和用户当时点的那一个必须一致 ——
+ * 事后再从别处读一次，反而可能读到不一样的。
+ *
+ * ## 为什么页内跳转不压新的一页
+ *
+ * 在浏览器里连点三层链接，返回栈里**仍然只有这一项**。压三层的话，
+ * 用户要按三次返回才回得到聊天，而他心里「返回」的目标从一开始就是聊天。
+ * 网页之间的来回交给 WebView 自己的历史 —— 系统返回键会先走它
+ * （见 `BrowserScreen` 的 KDoc）。
+ */
+@Serializable data class Browser(val url: String) : NavKey
+
+/**
  * 对话页。**这是 App 的首页**（起始目的地）。
  *
  * ## 会话列表去哪了
@@ -101,3 +121,19 @@ import kotlinx.serialization.Serializable
  * 不能指望用户去翻文档（见 `com.aichat.crash` 那两个文件的 KDoc）。
  */
 @Serializable data object CrashLogs : NavKey
+
+/**
+ * 内置终端。
+ *
+ * 放在「设置」这一支下面，和 [CrashLogs] 同理：它是**工具**，不是日常动作。
+ * 不放进抽屉，是因为抽屉里那三项（会话 / 搜索历史 / 设置）都是**每天要用的**，
+ * 而终端是「想起来才用一次」。
+ *
+ * ⚠️ 它**不是**「让 AI 跑命令」那个能力。那是给模型的工具（`:tools` 那条线），
+ * 这一页是给**用户自己**敲的。两者共用同一个机制（跑系统自带的 `sh`），
+ * 但入口、风险、要不要征求同意都不一样 —— 别为了省事合成一个。
+ *
+ * 跑得起来的前提与边界（为什么 `apt` 装不了、为什么没有交互式终端）
+ * 写在 `com.aichat.ui.terminal.TerminalScreen` 的 KDoc 里，判据在 SKILL.md §100.8。
+ */
+@Serializable data object Terminal : NavKey

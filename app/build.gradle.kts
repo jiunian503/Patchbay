@@ -238,6 +238,44 @@ android {
         it.inputs.dir("$projectDir/src/main/assets").withPathSensitivity(PathSensitivity.RELATIVE)
         it.inputs.dir("${rootProject.projectDir}/plugin/examples")
             .withPathSensitivity(PathSensitivity.RELATIVE)
+
+        // 导航图那两个源文件的路径。
+        //
+        // `NavigationGraphTest` 要**读源码文本**：数 `NavigationKeys.kt` 里声明了
+        // 几个 `NavKey`、`Navigation.kt` 里注册了几个 `entry<>`、以及那份 KDoc
+        // 里写的中文数字是几 —— 三处必须一致。
+        //
+        // 为什么是「读文本」而不是「反射」：这里要守的恰恰是**文档里的数字**，
+        // 反射看不到注释。而它漂过两次（加 `CrashLogs` 时没回来改，
+        // 加 `Browser` 时我照抄了残缺名单、把「十个」改成「十一个」，还是差一个）。
+        // 判据是「三个数相等」，不是「能不能跑」—— 差一个不会有任何运行时症状。
+        it.systemProperty(
+            "patchbay.navigationKeysFile",
+            "$projectDir/src/main/java/com/aichat/NavigationKeys.kt",
+        )
+        it.systemProperty(
+            "patchbay.navigationFile",
+            "$projectDir/src/main/java/com/aichat/Navigation.kt",
+        )
+        // **这两个文件必须显式声明成输入，理由和上面两处不一样 —— 而且更隐蔽。**
+        //
+        // 直觉会说「它们本来就是 `:app` 的编译输入，改了必然重编译、测试跟着重跑，
+        // 声明是多余的」。**实测不是**（2026-09-21）：这条测试唯一要抓的场景是
+        // 「KDoc 里的数字和实际数量对不上」，而**改注释不改变编译产物** ——
+        // 于是 `:app:compileDebugKotlin` 报 **FROM-CACHE**，测试任务跟着被判
+        // **UP-TO-DATE 整个跳过**，而 Gradle 打印的是 `BUILD SUCCESSFUL`：
+        //
+        //     > Task :app:compileDebugKotlin FROM-CACHE
+        //     > Task :app:testDebugUnitTest UP-TO-DATE
+        //     BUILD SUCCESSFUL
+        //
+        // 也就是说：没有这两行，这条测试会在**最需要它的那一刻**安静地变成绿的。
+        // 反过来说，`inputs.file` 的正确性也只能这样验 —— 破坏之后要确认
+        // **任务真的重跑了**，只看「红没红」会被 UP-TO-DATE 骗过去（§91）。
+        it.inputs.file("$projectDir/src/main/java/com/aichat/NavigationKeys.kt")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
+        it.inputs.file("$projectDir/src/main/java/com/aichat/Navigation.kt")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
       }
     }
 }

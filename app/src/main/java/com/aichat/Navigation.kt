@@ -1,8 +1,11 @@
 package com.aichat
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.NavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
@@ -10,6 +13,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import com.aichat.di.AppContainer
+import com.aichat.ui.browser.BrowserScreen
+import com.aichat.ui.browser.isWebUrl
 import com.aichat.ui.characters.CharacterEditScreen
 import com.aichat.ui.characters.CharacterListScreen
 import com.aichat.ui.chat.ChatScaffold
@@ -21,6 +26,7 @@ import com.aichat.ui.plugins.PluginListScreen
 import com.aichat.ui.settings.ProviderEditScreen
 import com.aichat.ui.settings.ProviderListScreen
 import com.aichat.ui.settings.WebSearchSettingsScreen
+import com.aichat.ui.terminal.TerminalScreen
 
 /**
  * `NavDisplay` 的 entry 装饰器。
@@ -83,10 +89,16 @@ internal fun <T> popBackStack(backStack: MutableList<T>) {
 }
 
 /**
- * 导航图。十个目的地，没有嵌套。
+ * 导航图。**十三个目的地**，没有嵌套。
  *
- * （对话 / 搜索 / 服务商列表 / 服务商编辑 / 联网搜索 / 插件列表 / 插件安装 /
- * 插件详情 / 角色列表 / 角色编辑）
+ * （对话 / 内置浏览器 / 搜索 / 服务商列表 / 服务商编辑 / 联网搜索 / 插件列表 /
+ * 插件安装 / 插件详情 / 角色列表 / 角色编辑 / 崩溃记录 / 终端）
+ *
+ * ⚠️ 上面那两行**不是装饰**：它漂过两次 —— 加 `CrashLogs` 时只加了键和 entry、
+ * 没回来改这里（于是「十个」其实一直是十一个，名单里也没有崩溃记录）；
+ * 加 `Browser` 时我照抄了那份残缺名单，把它从「十个」改成「十一个」——
+ * **还是差一个**。现在由 `NavigationGraphTest` 机械地守着（见那个文件）。
+ * 改目的地就跟着改这里，测试会告诉你改漏了。
  *
  * ## 起始目的地是「上次那个会话」，不是列表
  *
@@ -182,6 +194,39 @@ fun MainNavigation(container: AppContainer) {
         remember { container.settings.lastConversationId() ?: container.newConversationId() }
     val backStack = rememberNavBackStack(Chat(startConversationId))
 
+    // ── 消息里的链接：在 App 内打开，不弹出去 ────────────────────────────────
+    //
+    // 做法是**换掉 `LocalUriHandler` 的提供值**，而不是给 `MarkdownText` 加一个
+    // 回调参数。理由：那条路上取 URL 的地方只有一处 —— `MarkdownText.InlineText`
+    // 里的 `LocalUriHandler.current` —— 而它到 `ChatScaffold` 之间隔着
+    // `ChatScreen` / 消息列表 / 气泡好几层。为一个回调穿这么多层，每层都要多一个
+    // 参数，而且**漏传一层不报错**，只会让链接又悄悄弹出去。
+    //
+    // ⚠️ **作用域只包 `entry<Chat>`**，这是有意的：全项目用 `LocalUriHandler` 的
+    // 还有一处 —— 设置页「检查更新」里的「去下载」—— 它**必须**留在系统浏览器里。
+    // 那个动作的目的是下载 APK 再安装，WebView 既下不了也装不了
+    // （见 `ProviderListScreen.UpdateAvailableDialog` 的 KDoc）。包到
+    // `NavDisplay` 外面就会把它一起改掉。
+    val systemUriHandler = LocalUriHandler.current
+    val inAppUriHandler = remember(systemUriHandler) {
+        object : UriHandler {
+            override fun openUri(uri: String) {
+                // 网页 → 内置页；其余 scheme（`mailto:` / `tel:` …）交回系统 ——
+                // 那些是「另一个 App 的活」，硬塞进 WebView 只会白屏
+                if (isWebUrl(uri)) {
+                    backStack.add(Browser(uri))
+                } else {
+                    // ⚠️ 必须包 `runCatching`：`AndroidUriHandler.openUri` **不吞异常**，
+                    // 它把 `ActivityNotFoundException` 包成 `IllegalArgumentException`
+                    // 再抛。设备上没有能处理 `mailto:` / `tel:` 的应用时，
+                    // 不包就是**直接崩在点击回调里**（实测见 §103）。
+                    // 和 `MarkdownText.InlineText` 那边同一个处理：打不开就算了。
+                    runCatching { systemUriHandler.openUri(uri) }
+                }
+            }
+        }
+    }
+
     NavDisplay(
         backStack = backStack,
         onBack = { popBackStack(backStack) },
@@ -189,41 +234,50 @@ fun MainNavigation(container: AppContainer) {
         entryProvider =
             entryProvider {
                 entry<Chat> { key ->
-                    // 记下「用户最后在哪个会话里」，下次冷启动直接进这里。
-                    //
-                    // 放在导航层而不是 ChatViewModel：这是「恢复上次位置」这件事，
-                    // 属于导航的职责。ViewModel 不该关心 App 下次怎么启动。
-                    LaunchedEffect(key.conversationId) {
-                        container.settings.setLastConversationId(key.conversationId)
-                    }
+                    CompositionLocalProvider(LocalUriHandler provides inAppUriHandler) {
+                        // 记下「用户最后在哪个会话里」，下次冷启动直接进这里。
+                        //
+                        // 放在导航层而不是 ChatViewModel：这是「恢复上次位置」这件事，
+                        // 属于导航的职责。ViewModel 不该关心 App 下次怎么启动。
+                        LaunchedEffect(key.conversationId) {
+                            container.settings.setLastConversationId(key.conversationId)
+                        }
 
-                    ChatScaffold(
-                        container = container,
-                        conversationId = key.conversationId,
-                        highlightMessageId = key.highlightMessageId,
-                        highlightQuery = key.highlightQuery,
-                        // 返回栈里只有它自己 → 它就是首页 → 顶栏给汉堡；
-                        // 否则是从搜索页压上来的 → 给返回箭头
-                        showBack = backStack.size > 1,
+                        ChatScaffold(
+                            container = container,
+                            conversationId = key.conversationId,
+                            highlightMessageId = key.highlightMessageId,
+                            highlightQuery = key.highlightQuery,
+                            // 返回栈里只有它自己 → 它就是首页 → 顶栏给汉堡；
+                            // 否则是从搜索页压上来的 → 给返回箭头
+                            showBack = backStack.size > 1,
+                            onBack = { popBackStack(backStack) },
+                            // 换会话是**替换**栈顶，不是压在它上面：压上去的话，
+                            // 用户逛过五个会话之后要按五次返回才能退出 App，
+                            // 而每一次返回看到的都是一个他已经不关心的旧会话
+                            onSwitchConversation = { id ->
+                                backStack.removeLastOrNull()
+                                backStack.add(Chat(id))
+                            },
+                            onNewConversation = {
+                                backStack.removeLastOrNull()
+                                backStack.add(Chat(container.newConversationId()))
+                            },
+                            onOpenSearch = { backStack.add(ConversationSearch) },
+                            onOpenSettings = { backStack.add(ProviderList) },
+                            // 首屏那条「还没有可用的服务商」提示条直接进编辑页，
+                            // 而不是先到设置页 —— 理由见 SetupHint 的 KDoc
+                            onOpenProviderEdit = { providerId ->
+                                backStack.add(ProviderEdit(providerId))
+                            },
+                        )
+                    }
+                }
+
+                entry<Browser> { key ->
+                    BrowserScreen(
+                        url = key.url,
                         onBack = { popBackStack(backStack) },
-                        // 换会话是**替换**栈顶，不是压在它上面：压上去的话，
-                        // 用户逛过五个会话之后要按五次返回才能退出 App，
-                        // 而每一次返回看到的都是一个他已经不关心的旧会话
-                        onSwitchConversation = { id ->
-                            backStack.removeLastOrNull()
-                            backStack.add(Chat(id))
-                        },
-                        onNewConversation = {
-                            backStack.removeLastOrNull()
-                            backStack.add(Chat(container.newConversationId()))
-                        },
-                        onOpenSearch = { backStack.add(ConversationSearch) },
-                        onOpenSettings = { backStack.add(ProviderList) },
-                        // 首屏那条「还没有可用的服务商」提示条直接进编辑页，
-                        // 而不是先到设置页 —— 理由见 SetupHint 的 KDoc
-                        onOpenProviderEdit = { providerId ->
-                            backStack.add(ProviderEdit(providerId))
-                        },
                     )
                 }
 
@@ -250,6 +304,7 @@ fun MainNavigation(container: AppContainer) {
                         onOpenWebSearch = { backStack.add(WebSearchSettings) },
                         onOpenCrashLogs = { backStack.add(CrashLogs) },
                         onOpenCharacters = { backStack.add(CharacterList) },
+                        onOpenTerminal = { backStack.add(Terminal) },
                     )
                 }
 
@@ -274,6 +329,13 @@ fun MainNavigation(container: AppContainer) {
                         container = container,
                         onBack = { popBackStack(backStack) },
                     )
+                }
+
+                entry<Terminal> {
+                    // 这一页**不碰 `container`** —— 它跑的是系统自带的 `sh`，
+                    // 不需要数据库、不需要设置、不需要任何注入的依赖。
+                    // 后面要是给它加了「让 AI 也用它」，那才需要在这里接上工具系统。
+                    TerminalScreen(onBack = { popBackStack(backStack) })
                 }
 
                 entry<WebSearchSettings> {
