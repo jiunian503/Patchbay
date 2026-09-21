@@ -905,4 +905,68 @@ class ManifestParserTest {
         assertTrue(report, report.contains("三段式"))
         assertTrue("警告也要出现在报告里：$report", report.contains("任意主机"))
     }
+
+    // ---------------------------------------------------------------- 不变量
+
+    /**
+     * 「没有 Error」和「拿得到清单」必须是同一件事。
+     *
+     * ## 为什么它值得单独一条
+     *
+     * 安装页上这两句话**是从两个不同的地方算出来的**：
+     *
+     * | 界面上看到的 | 判据 | 出处 |
+     * |---|---|---|
+     * | 「清单检查通过，可以安装」 | `errors.isEmpty() && warnings.isEmpty()` | `PluginInstallScreen.ProblemList` |
+     * | 「安装」按钮可点 | `check.isUsable`（也就是 `manifest != null`） | `PluginInstallViewModel.canInstall` |
+     *
+     * 两处各自看都对，但它们说的**是不是同一件事**，取决于一条不变量：
+     * 没有 Error ⇔ 清单非空。不变量一破，界面就会一边写着「可以安装」、
+     * 一边把按钮灰着 —— 而用户看不出该信哪一句，也看不出这是代码的问题。
+     *
+     * 这条不变量现在靠 `check()` 里那一行 `if (hasError) null else manifest` 维持，
+     * 但 `parse()` 的**两个早退分支各自手写了一遍**（不是复用的）：
+     * 「不是合法 JSON」和「结构层解析失败」。手写两遍的东西正是会漂的地方。
+     *
+     * 用例里刻意两种方向都有：光有「错误 ⇒ 拿不到清单」的话，
+     * 一个**永远返回 null 的**实现也能通过 —— 那种实现下合法清单装不上，
+     * 而这条测试会一路绿。
+     */
+    @Test
+    fun `没有错误和拿得到清单必须是同一件事`() {
+        // (这是什么情况, 清单文本, 该不该拿到清单)
+        val cases = listOf(
+            Triple("完全合法", Manifests.declarative(), true),
+            // shell 权限是 Warning（宿主还不支持，但清单本身没错）——
+            // 这条是「只有警告」的那一格，它必须仍然装得上
+            Triple("只有警告", Manifests.declarative(extraPermissions = ",\"shell\":true"), true),
+            Triple("不是合法 JSON", "{ 这不是 JSON", false),
+            Triple("有未知字段", Manifests.declarative().replaceFirst("{", "{\"zzz\":1,"), false),
+            // 下面两条走的是结构层的**兜底分支**（`structuralProblem` 最后那个 return）——
+            // 它既不是「未知键」也不是「该加引号」，两条专用分支都盖不到它。
+            // 顺带记一条实测：`"id":123` **不是**结构层失败 —— kotlinx 对 String 字段
+            // 直接取字面量，于是它一路走到身份校验，报的是「不是合法的插件标识」。
+            Triple("结构层失败（少了必填的 version）", Manifests.declarative().replaceFirst("\"version\":\"1.0.0\",", ""), false),
+            Triple("结构层失败（runtime 是个不认识的值）", Manifests.declarative().replaceFirst("\"runtime\":\"declarative\",", "\"runtime\":\"nope\","), false),
+            Triple("一个工具都没有", Manifests.declarative(tools = emptyList()), false),
+        )
+
+        cases.forEach { (what, json, usable) ->
+            val check = parse(json)
+
+            assertEquals(
+                "「$what」：清单该${if (usable) "拿得到" else "拿不到"}：\n${check.report()}",
+                usable,
+                check.isUsable,
+            )
+            // 这条才是界面依赖的那条等式。写成两个表达式比对的形状，
+            // 而不是把上面那个期望值抄一遍 —— 抄一遍的话，改动
+            // `check()` 里那一行时两边会一起错
+            assertEquals(
+                "「$what」：没有 Error 和拿得到清单必须是同一件事：\n${check.report()}",
+                check.errors.isEmpty(),
+                check.isUsable,
+            )
+        }
+    }
 }

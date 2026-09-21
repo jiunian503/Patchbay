@@ -244,7 +244,11 @@ private fun WorldBookHint() {
                 Text(
                     text = "词条只有在这段对话里出现过触发词时才会发给模型。" +
                         "触发词可以写好几个，用逗号或顿号隔开 —— 任意一个命中都算。" +
-                        "中文按子串匹配，英文缩写按整词匹配（所以 AI 不会在 said 里被触发）。",
+                        "中文按子串匹配，英文缩写按整词匹配（所以 AI 不会在 said 里被触发）。" +
+                        // ⚠️ 上限那一句**不能省**：截断是静默的，不写在这儿用户
+                        // 永远不知道「为什么我配了却没生效」。数字跟着常量走，
+                        // 见 [worldBookBudgetHint]
+                        worldBookBudgetHint(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
