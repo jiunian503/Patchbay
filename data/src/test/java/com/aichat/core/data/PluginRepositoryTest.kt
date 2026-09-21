@@ -570,6 +570,65 @@ class PluginRepositoryTest {
         assertTrue("第一次装的时候权限清单本来就会展示给用户", result.permissionChanges.isEmpty())
     }
 
+    // ---------------------------------------------------------------- 摘要要说人话
+
+    /**
+     * 会出现在权限摘要里的英文枚举名 —— 它们**只该**以 `displayName` 的形式出现。
+     *
+     * 见 `FilesystemScope.displayName` 的 KDoc：**刻意不复用 `enum.name`**，
+     * 「`Accessibility` 直接显示出来是英文，而这个列表是给用户判断
+     * 『要不要给它这个权限』用的，必须一眼看懂」。
+     *
+     * 这条清单只写一份：两个测试各写一份的话，改一处忘另一处**没有任何症状**。
+     */
+    private val englishEnumNames = listOf(
+        "ReadWrite", "Read", "None", // FilesystemScope
+        "Clipboard", "Accessibility", "Sms", // DeviceCapability
+        "Declarative", "Script", "Native", // PluginRuntimeKind
+    )
+
+    /**
+     * 摘要会渲染到升级确认页上（`UpgradeWarning`），所以必须是中文。
+     *
+     * 这里曾经直接插值了枚举本身 —— 用户看到的是
+     * `新增文件系统权限：ReadWrite`、`新增设备能力声明：Clipboard`。
+     */
+    @Test
+    fun `权限摘要里不许出现英文枚举名`() = runTest {
+        val env = Env()
+        env.repo.install(Manifests.declarative())
+
+        val result = env.repo.install(
+            Manifests.declarative(
+                version = "1.1.0",
+                extraPermissions = ""","filesystem":"readwrite","device":["clipboard"]""",
+            ),
+        )
+
+        val text = result.permissionChanges.joinToString("\n")
+        assertTrue("文件系统权限得说人话：\n$text", text.contains("读写"))
+        assertTrue("设备能力得说人话：\n$text", text.contains("剪贴板"))
+        englishEnumNames.forEach {
+            assertFalse("权限摘要里出现了英文枚举名「$it」：\n$text", text.contains(it))
+        }
+    }
+
+    /** 同上，这条管的是「运行形态变了」那一行（原来是 `declarative → native`）。 */
+    @Test
+    fun `运行形态变了也说中文`() = runTest {
+        val env = Env()
+        env.repo.install(Manifests.declarative())
+
+        val result = env.repo.install(Manifests.otherRuntime("pub.test.demo", "native"))
+
+        val text = result.permissionChanges.joinToString("\n")
+        assertTrue("运行形态得说人话：\n$text", text.contains("声明式"))
+        assertTrue("运行形态得说人话：\n$text", text.contains("原生库"))
+        englishEnumNames.forEach {
+            assertFalse("权限摘要里出现了英文枚举名「$it」：\n$text", text.contains(it))
+        }
+    }
+
     // ---------------------------------------------------------------- 装之前问一句
 
     @Test

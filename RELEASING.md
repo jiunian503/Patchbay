@@ -202,7 +202,9 @@ python tools/elf_align.py app/build/outputs/apk/release/app-release.apk
 > 1.0 的字节数和**这一版**的字节数 —— 没有任何测试盯着它们（`NetworkEgressTest` 只守
 > 「出网请求只有 N 种」那一句）。实测踩过：v1.2 时那句写的是「大了约 1.2 MB」，
 > 到 v1.4 实际已经是 1.45 MB，中间隔了两版没人动它。
-> 改完核一遍：`grep -n "APK 是" README.md`。
+> 改完核一遍：`grep -nE "[0-9],[0-9]{3},[0-9]{3} B" README.md` —— 它会命中**两处**：
+> `.so` 合计与 APK 总字节（外加 v1.0 那个对照值），**每一处都要核**。
+> `.so` 那处只在换 QuickJS 版本时才变，最容易漏。
 > 引用体积**一律写字节数**，别写 MB —— 这个仓库里 MB 有 10⁶ 和 MiB 两种用法，
 > 同一个数按两种算法写出来像两个数。
 

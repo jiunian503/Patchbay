@@ -8,6 +8,7 @@ import com.aichat.plugin.manifest.ManifestParser
 import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.PluginManifest
 import com.aichat.plugin.manifest.PluginRuntimeKind
+import com.aichat.plugin.manifest.displayName
 import com.aichat.plugin.runtime.PluginSettings
 import com.aichat.plugin.runtime.mcp.McpCacheCodec
 import com.aichat.plugin.runtime.mcp.McpToolCache
@@ -572,16 +573,23 @@ class PluginRepository(
         // 说了会让用户以为插件刚获得了新能力。
         if (!before.shell && after.shell) changes += "新增 shell 权限声明（当前版本还不支持）"
         if (!before.linuxEnv && after.linuxEnv) changes += "新增 Ubuntu 环境声明（当前版本还不支持）"
+        // ⚠️ 三条都必须走 `displayName`，不能直接插值枚举本身。
+        //
+        // `${after.filesystem}` / `${newDevice}` / `${runtime.name.lowercase()}`
+        // 渲染出来是 `ReadWrite` / `Clipboard` / `declarative` —— **英文枚举名**，
+        // 而这段文字会出现在升级确认页上给用户看（`UpgradeWarning`）。
+        // `displayName` 的 KDoc 里写得很清楚：刻意不复用 `enum.name`，
+        // 「`Accessibility` 直接显示出来是英文」。
         if (before.filesystem == FilesystemScope.None && after.filesystem != FilesystemScope.None) {
-            changes += "新增文件系统权限：${after.filesystem}"
+            changes += "新增文件系统权限：${after.filesystem.displayName}"
         }
         val newDevice = after.device - before.device.toSet()
         if (newDevice.isNotEmpty()) {
-            changes += "新增设备能力声明：${newDevice.joinToString("、")}（当前版本还不支持）"
+            changes += "新增设备能力声明：${newDevice.joinToString("、") { it.displayName }}（当前版本还不支持）"
         }
 
         if (old.runtime != newManifest.runtime) {
-            changes += "运行形态从 ${old.runtime.name.lowercase()} 变成了 ${newManifest.runtime.name.lowercase()}"
+            changes += "运行形态从 ${old.runtime.displayName} 变成了 ${newManifest.runtime.displayName}"
         }
         if (old.entry.declarative?.baseUrl != newManifest.entry.declarative?.baseUrl) {
             newManifest.entry.declarative?.baseUrl?.let { changes += "接口地址变成了 $it" }
