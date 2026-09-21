@@ -567,13 +567,18 @@ class PluginRepository(
             }
         }
 
-        if (!before.shell && after.shell) changes += "新增 shell 权限（可以执行系统命令）"
-        if (!before.linuxEnv && after.linuxEnv) changes += "新增 Ubuntu 环境权限"
+        // shell / linuxEnv / device 三项当前版本的宿主都还不支持，
+        // 所以这里只说「声明变了」，不说「能干什么」—— 后者现在不成立，
+        // 说了会让用户以为插件刚获得了新能力。
+        if (!before.shell && after.shell) changes += "新增 shell 权限声明（当前版本还不支持）"
+        if (!before.linuxEnv && after.linuxEnv) changes += "新增 Ubuntu 环境声明（当前版本还不支持）"
         if (before.filesystem == FilesystemScope.None && after.filesystem != FilesystemScope.None) {
             changes += "新增文件系统权限：${after.filesystem}"
         }
         val newDevice = after.device - before.device.toSet()
-        if (newDevice.isNotEmpty()) changes += "新增设备能力：${newDevice.joinToString("、")}"
+        if (newDevice.isNotEmpty()) {
+            changes += "新增设备能力声明：${newDevice.joinToString("、")}（当前版本还不支持）"
+        }
 
         if (old.runtime != newManifest.runtime) {
             changes += "运行形态从 ${old.runtime.name.lowercase()} 变成了 ${newManifest.runtime.name.lowercase()}"

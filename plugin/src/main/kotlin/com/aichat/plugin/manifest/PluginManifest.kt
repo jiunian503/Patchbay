@@ -124,12 +124,32 @@ data class PluginPermissions(
     /** 只能作用于插件自己的工作区目录，不给全盘访问。 */
     val filesystem: FilesystemScope = FilesystemScope.None,
 
-    /** 是否允许执行 shell 命令。高危，默认拒绝。 */
+    /**
+     * 是否允许执行 shell 命令。高危，默认拒绝。
+     *
+     * ⚠️ **当前版本的宿主还不支持**：运行时没有任何地方读这个字段
+     * （在 `plugin/src/main` 里搜 `permissions.shell`，只有 `ManifestParser`
+     * 的校验和这里命中），声明成 `true` 也拿不到命令执行能力。它现在只有
+     * 两个作用 —— 让用户知道「这个插件想要什么」，以及给将来留一个声明位。
+     *
+     * 所以 `describe()` 里必须把「还不支持」说出来。只说「可以执行系统命令」
+     * 是**误导**：用户装完会发现一条命令都跑不了。
+     */
     val shell: Boolean = false,
 
+    /**
+     * 申请的设备能力（剪贴板、联系人等）。
+     *
+     * ⚠️ 和 [shell] 一样，**当前版本的宿主还不支持** —— 声明了也拿不到数据。
+     */
     val device: List<DeviceCapability> = emptyList(),
 
-    /** 是否需要 Ubuntu 工作区。为 true 时首次调用要等环境启动。 */
+    /**
+     * 是否需要 Ubuntu 工作区。
+     *
+     * ⚠️ **当前版本的宿主还不支持**：宿主没有「Ubuntu 环境」这个概念，
+     * 声明成 `true` 既不会启动环境，也没有「首次调用要等它启动」这回事。
+     */
     val linuxEnv: Boolean = false,
 )
 
@@ -205,9 +225,9 @@ val AuthType.displayName: String
  *
  * ## 为什么返回列表而不是一段文字
  *
- * 因为界面要**逐条**展示（每条一行、高危的单独标红），而不是把一整段
- * 糊进一个 Text。安装时的权限确认是用户唯一一次真正做决定的机会，
- * 排版糊掉等于没给他看。
+ * 因为界面要**逐条**展示（每条一行，带 `⚠️` 的才是**真会发生**的风险），
+ * 而不是把一整段糊进一个 Text。安装时的权限确认是用户唯一一次真正做决定
+ * 的机会，排版糊掉等于没给他看。
  *
  * ## 为什么这里不带 markdown
  *
@@ -227,10 +247,16 @@ fun PluginPermissions.describe(): List<String> {
     if (filesystem != FilesystemScope.None) {
         out += "文件：${filesystem.displayName}"
     }
-    if (shell) out += "⚠️ 可以执行系统命令（shell）"
-    if (linuxEnv) out += "⚠️ 需要 Ubuntu 环境"
+    // 下面三项当前版本的宿主都不支持，所以**不带 `⚠️`** ——
+    // `⚠️` 的含义是「这条真的会发生」，而它们不会。
+    //
+    // 但也**不能直接删掉**：用户有权知道这个插件想要什么。所以照实说 ——
+    // 声明了 + 现在拿不到。这句话会原样出现在安装页和详情页上。
+    if (shell) out += "shell：声明了执行系统命令（当前版本还不支持，不会执行）"
+    if (linuxEnv) out += "Ubuntu 环境：声明了需要它（当前版本还不支持）"
     if (device.isNotEmpty()) {
-        out += "⚠️ 设备能力：${device.joinToString("、") { it.displayName }}"
+        out += "设备能力：${device.joinToString("、") { it.displayName }}" +
+            "（当前版本还不支持，拿不到这些数据）"
     }
 
     return out
@@ -242,9 +268,22 @@ fun PluginPermissions.describe(): List<String> {
  * 安装界面据此决定要不要把权限区标红。**不看数量看性质**：
  * 一个只要 `api.example.com` 的插件和一个要 `*` 的插件，
  * 权限行数可能一样多。
+ *
+ * ## 为什么 `shell` / `linuxEnv` / `device` 不算在内
+ *
+ * 因为**标红要对应一个真会发生的风险**，而这三项当前版本的宿主都不支持
+ * （运行时没有任何读点，见 [PluginPermissions.shell] 的注释）。
+ * 为一个「声明了但拿不到」的东西把整张卡染红，是把用户往错的方向推 ——
+ * 他会以为这个插件真能读联系人，然后基于一个假前提做决定。
+ *
+ * 它们仍然会出现在 [describe] 的清单里（照实说明不兑现），
+ * 只是不触发「需要你留意」这个判断。**等哪天真的支持了，记得回来加**。
+ *
+ * 反过来说 `network.contains("*")` 是真会发生的：`PluginHost` 用它构造
+ * `NetworkGuard`，白名单外的主机第一次连接就被拦下 —— 所以 `*` 值得标红。
  */
 val PluginPermissions.isHighRisk: Boolean
-    get() = network.contains("*") || shell || linuxEnv || device.isNotEmpty()
+    get() = network.contains("*")
 
 @Serializable
 enum class DeviceCapability {

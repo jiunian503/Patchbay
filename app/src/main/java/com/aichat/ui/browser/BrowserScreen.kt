@@ -2,7 +2,6 @@ package com.aichat.ui.browser
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.net.Uri
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -28,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 import com.aichat.ui.common.PbEmptyState
 import com.aichat.ui.common.PbIcons
 import com.aichat.ui.common.PbTopBar
@@ -297,7 +297,7 @@ internal fun isWebUrl(url: String): Boolean {
  * 解析失败就原样返回，至少让人看到点东西。
  */
 private fun hostOf(url: String): String =
-    runCatching { Uri.parse(url).host }
+    runCatching { url.toUri().host }
         .getOrNull()
         ?.removePrefix("www.")
         ?: url

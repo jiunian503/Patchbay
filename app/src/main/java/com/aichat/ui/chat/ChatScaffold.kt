@@ -23,6 +23,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aichat.di.AppContainer
@@ -290,4 +291,4 @@ private const val TAG = "PatchbayExport"
 
 /** 主存储的 `Download` 目录。`primary:` 后是相对路径，`:` 要转义成 `%3A`。 */
 private val DOWNLOADS_URI: Uri =
-    Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+    "content://com.android.externalstorage.documents/document/primary%3ADownload".toUri()

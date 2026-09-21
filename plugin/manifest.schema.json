@@ -133,11 +133,12 @@
         "shell": {
           "type": "boolean",
           "default": false,
-          "description": "是否允许执行 shell 命令。高危，默认拒绝，安装时必须二次确认。"
+          "description": "是否允许执行 shell 命令。高危，默认拒绝。当前版本的宿主还不支持这项：写 true 只是留下声明，插件拿不到命令执行能力。"
         },
         "device": {
           "type": "array",
           "default": [],
+          "description": "申请的设备能力。当前版本的宿主还不支持这项：写进来只是留下声明，插件拿不到这些数据。",
           "items": {
             "enum": [
               "accessibility",
@@ -154,7 +155,7 @@
         "linuxEnv": {
           "type": "boolean",
           "default": false,
-          "description": "是否需要 Ubuntu 工作区。为 true 时首次调用要等环境启动，宿主应据此调整超时。"
+          "description": "是否需要 Ubuntu 工作区。当前版本的宿主还不支持这项：写 true 只是留下声明，不会启动任何环境。"
         }
       }
     },

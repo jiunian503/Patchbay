@@ -56,7 +56,7 @@ case "`uname`" in
   Darwin* )
     darwin=true
     ;;
-  MINGW* )
+  MSYS* | MINGW* )
     msys=true
     ;;
   NONSTOP* )
@@ -109,8 +109,16 @@ if $darwin; then
     GRADLE_OPTS="$GRADLE_OPTS \"-Xdock:name=$APP_NAME\" \"-Xdock:icon=$APP_HOME/media/gradle.icns\""
 fi
 
-# For Cygwin, switch paths to Windows format before running java
-if $cygwin ; then
+# For Cygwin or MSYS, switch paths to Windows format before running java
+#
+# ⚠️ 这个脚本是从 Gradle 5.x 那代抄来的，原来这里只有 `if $cygwin` ——
+# 而 `MINGW*`（Git Bash）走的是 `msys=true`，于是路径不转换，`java.exe`
+# 拿到 `/c/...` 形式的 classpath，报
+# `找不到或无法加载主类 org.gradle.wrapper.GradleWrapperMain`。
+# Git Bash 是 Windows 上最常用的 shell，所以这条必须带上 `$msys`。
+# 上游 Gradle 9 的写法是 `if "$cygwin" || "$msys"`，这里沿用本文件自己的
+# `[ ... = "true" -o ... ]` 风格，和下面那段 `-a` 保持一致。
+if [ "$cygwin" = "true" -o "$msys" = "true" ] ; then
     APP_HOME=`cygpath --path --mixed "$APP_HOME"`
     CLASSPATH=`cygpath --path --mixed "$CLASSPATH"`
     JAVACMD=`cygpath --unix "$JAVACMD"`

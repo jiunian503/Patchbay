@@ -622,10 +622,17 @@ object ManifestParser {
             )
         }
 
+        // shell / linuxEnv / device 三项**当前版本的宿主都不支持** ——
+        // 运行时没有任何地方读它们，声明了也不生效。
+        //
+        // 所以这三条是 Warning 而不是 Error：声明了不会让插件更危险，
+        // 只是「写了没用」。也正因为如此，文案必须把「还不支持」说出来 ——
+        // 这些话会直接渲染到安装页给用户看（`ProblemList`），
+        // 只说「可以执行系统命令」就是误导。
         if (p.shell) {
             out += ManifestProblem(
                 "$.permissions.shell",
-                "申请了 shell 权限。这等于把设备交给插件，安装时必须让用户二次确认。",
+                "声明了 shell 权限，但当前版本的宿主还不支持 —— 插件不会因此获得命令执行能力。",
                 severity = ManifestProblem.Severity.Warning,
             )
         }
@@ -633,7 +640,7 @@ object ManifestParser {
         if (p.linuxEnv) {
             out += ManifestProblem(
                 "$.permissions.linuxEnv",
-                "需要 Ubuntu 工作区。首次调用要等环境启动，宿主会据此放宽超时。",
+                "声明了需要 Ubuntu 工作区，但当前版本的宿主还不支持 —— 不会启动任何环境。",
                 severity = ManifestProblem.Severity.Warning,
             )
         }
@@ -641,8 +648,8 @@ object ManifestParser {
         if (p.device.isNotEmpty()) {
             out += ManifestProblem(
                 "$.permissions.device",
-                "申请了设备能力：${p.device.joinToString("、") { it.displayName }}。" +
-                    "这些是用户隐私数据，安装时要逐项展示。",
+                "声明了设备能力：${p.device.joinToString("、") { it.displayName }}。" +
+                    "当前版本的宿主还不支持，插件拿不到这些数据。",
                 severity = ManifestProblem.Severity.Warning,
             )
         }
