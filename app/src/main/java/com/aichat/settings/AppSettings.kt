@@ -1,6 +1,7 @@
 package com.aichat.settings
 
 import android.content.Context
+import androidx.core.content.edit
 import com.aichat.tools.WebSearchBackend
 
 /**
@@ -46,7 +47,7 @@ class AppSettings(context: Context) {
     fun longTermMemory(): Boolean = prefs.getBoolean(KEY_LONG_TERM_MEMORY, DEFAULT_LONG_TERM_MEMORY)
 
     fun setLongTermMemory(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_LONG_TERM_MEMORY, enabled).apply()
+        prefs.edit { putBoolean(KEY_LONG_TERM_MEMORY, enabled) }
     }
 
     /**
@@ -74,12 +75,9 @@ class AppSettings(context: Context) {
     fun lastConversationId(): String? = prefs.getString(KEY_LAST_CONVERSATION, null)
 
     fun setLastConversationId(id: String?) {
-        prefs
-            .edit()
-            .apply {
-                if (id == null) remove(KEY_LAST_CONVERSATION) else putString(KEY_LAST_CONVERSATION, id)
-            }
-            .apply()
+        prefs.edit {
+            if (id == null) remove(KEY_LAST_CONVERSATION) else putString(KEY_LAST_CONVERSATION, id)
+        }
     }
 
     /**
@@ -113,7 +111,7 @@ class AppSettings(context: Context) {
         prefs.getString(KEY_WEB_SEARCH_BACKEND, WebSearchBackend.BING_HTML.id).orEmpty()
 
     fun setWebSearchBackend(id: String) {
-        prefs.edit().putString(KEY_WEB_SEARCH_BACKEND, id).apply()
+        prefs.edit { putString(KEY_WEB_SEARCH_BACKEND, id) }
     }
 
     /**
@@ -126,7 +124,7 @@ class AppSettings(context: Context) {
     fun webSearchEndpoint(): String = prefs.getString(KEY_WEB_SEARCH_ENDPOINT, "").orEmpty()
 
     fun setWebSearchEndpoint(url: String) {
-        prefs.edit().putString(KEY_WEB_SEARCH_ENDPOINT, url).apply()
+        prefs.edit { putString(KEY_WEB_SEARCH_ENDPOINT, url) }
     }
 
     /**
@@ -155,21 +153,18 @@ class AppSettings(context: Context) {
 
     /** 两个参数都传 null 就是清空。 */
     fun setPendingCharacter(conversationId: String?, characterId: String?) {
-        prefs
-            .edit()
-            .apply {
-                if (conversationId == null) {
-                    remove(KEY_PENDING_CHARACTER_CONV)
-                } else {
-                    putString(KEY_PENDING_CHARACTER_CONV, conversationId)
-                }
-                if (characterId == null) {
-                    remove(KEY_PENDING_CHARACTER)
-                } else {
-                    putString(KEY_PENDING_CHARACTER, characterId)
-                }
+        prefs.edit {
+            if (conversationId == null) {
+                remove(KEY_PENDING_CHARACTER_CONV)
+            } else {
+                putString(KEY_PENDING_CHARACTER_CONV, conversationId)
             }
-            .apply()
+            if (characterId == null) {
+                remove(KEY_PENDING_CHARACTER)
+            } else {
+                putString(KEY_PENDING_CHARACTER, characterId)
+            }
+        }
     }
 
     companion object {
