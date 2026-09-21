@@ -140,6 +140,20 @@ fun CharacterEditScreen(
                 )
             }
 
+            item {
+                OutlinedTextField(
+                    value = state.firstMessage,
+                    onValueChange = viewModel::setFirstMessage,
+                    label = { Text("开场白") },
+                    supportingText = {
+                        Text("新对话里角色先用这句开口，只说一次。留空则角色不先说话。")
+                    },
+                    minLines = 3,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             item { PbSectionLabel("世界书") }
 
             item { WorldBookHint() }

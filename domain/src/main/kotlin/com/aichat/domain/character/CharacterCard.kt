@@ -31,12 +31,20 @@ data class ImportedCharacter(
     val description: String,
     /** 拼好的人设正文，见 [CharacterCardParser] 的字段映射表。 */
     val persona: String,
+    /**
+     * 开场白：新会话里角色先说的那一句。空串 = 卡里没写。
+     *
+     * 和 [persona] **分开放**是有意的：人设每轮都进提示词，开场白只在
+     * 会话的第一句出现一次。并进人设的话，模型会把那句开场白当成设定，
+     * 于是每轮都想再说一遍。
+     */
+    val firstMessage: String,
     /** 世界书词条，**已按原卡的 `insertion_order` 排好序**。 */
     val entries: List<ImportedEntry>,
     /**
      * 这张卡里有、但这个 App 装不下的东西。**每条都是一句给人看的话。**
      *
-     * 空列表 = 全导进来了。非空时界面要把它们显示出来 —— 静默丢掉「开场白」
+     * 空列表 = 全导进来了。非空时界面要把它们显示出来 —— 静默丢掉
      * 「全局提示词替换」这类东西，用户会觉得「导入的东西不全」，却不知道
      * 缺了什么、更不知道是自己点错了还是这张卡本来就没有。
      */
@@ -77,9 +85,10 @@ data class ImportedEntry(
  * | `name` | 角色名 | |
  * | `creator_notes` | **界面简介** | 规格原文：`MUST NOT be used inside prompts` + `SHOULD be very discoverable` —— 正好就是「简介」这个位置 |
  * | `description` / `personality` / `scenario` / `mes_example` | **人设正文**（分节拼起来） | 这四段都是「发给模型看的设定」，和这个 App 的「人设」是同一个东西 |
+ * | `first_mes` | **开场白** | 卡里那句「角色先说的话」。它和人设的**生命周期不同**（人设每轮都发，开场白只在会话第一句出现一次），所以是另一个字段而不是并进人设 |
  * | `character_book.entries[]` | 世界书词条 | `keys` / `content` / `enabled` / `insertion_order` / `case_sensitive` |
  *
- * 装不下的（开场白、全局提示词替换、条件触发、常驻条目、递归扫描）会进
+ * 装不下的（备用开场白、全局提示词替换、条件触发、常驻条目、递归扫描）会进
  * [ImportedCharacter.warnings]，**不静默丢**。
  *
  * ## 为什么不用 `@Serializable` 定义 DTO
@@ -212,6 +221,9 @@ object CharacterCardParser {
             name = name,
             description = data.str("creator_notes").trim(),
             persona = composePersona(data),
+            // 空串也是合法的（卡里没写开场白）—— 这里不做「有没有」的判断，
+            // 那是下游的事：`:chat` 只管「有东西就落一条消息」
+            firstMessage = data.str("first_mes").trim(),
             entries = entries.map { it.entry },
             warnings = buildWarnings(data, book, rawEntries, parsed.size),
         )
@@ -272,9 +284,15 @@ object CharacterCardParser {
         rawEntries: List<JsonElement>,
         keptEntries: Int,
     ): List<String> = buildList {
+        // 主开场白已经装进去了（见 [mapCard]），这里只说**备用**的那些。
+        // 卡里可以带好几条开场白让用户挑一条开局，本版只用主的那条 ——
+        // 挑开场白是个独立的功能（界面上得有地方选），不是「多读一个字段」
         val greetings = (data["alternate_greetings"] as? JsonArray).orEmpty().size
-        if (data.str("first_mes").isNotBlank() || greetings > 0) {
-            add("这张卡带了开场白，本版没有「开场白」这个位置，不会自动填进对话。")
+        if (greetings > 0) {
+            add(
+                "这张卡还带了 $greetings 条备用开场白，本版只用主开场白，" +
+                    "其余的没导进来。"
+            )
         }
         if (data.str("system_prompt").isNotBlank() ||
             data.str("post_history_instructions").isNotBlank()

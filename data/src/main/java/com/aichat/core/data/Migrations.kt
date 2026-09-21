@@ -4,6 +4,34 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
+ * v7 → v8：给 `character` 加「开场白」。
+ *
+ * ## 为什么是角色卡上的一列，而不是消息表里的一条
+ *
+ * 开场白是**作者写在卡里的**东西（SillyTavern 的 `first_mes`），属于角色、
+ * 跨会话复用。存成消息的话，每开一个新会话都得从别处抄一份进来，而
+ * 「抄进来的那份和原卡对不上」就成了一个新的、没人测试过的坏状态。
+ * 理由同 [CharacterEntity.firstMessage]。
+ *
+ * ## NOT NULL 列必须给 DEFAULT
+ *
+ * 同 [MIGRATION_4_5]：SQLite 的 `ALTER TABLE ADD COLUMN` 对非空列要求
+ * 默认值，否则直接报错。`''` = 没有开场白，这正是老数据的正确取值 ——
+ * v7 里的角色卡压根没有这个字段，用户也没表达过任何开场白意图。
+ *
+ * 实体侧**没有**声明 `@ColumnInfo(defaultValue = ...)`，所以 Room 校验
+ * 迁移结果时不会比对这一列的默认值，于是「升级来的库有 `DEFAULT ''`、
+ * 全新装的库没有 DEFAULT」这种差异不会导致 `Migration didn't properly
+ * handle`。理由见 [MIGRATION_1_2] 的第 2 点。
+ */
+val MIGRATION_7_8 = object : Migration(7, 8) {
+
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `character` ADD COLUMN `first_message` TEXT NOT NULL DEFAULT ''")
+    }
+}
+
+/**
  * v6 → v7：加角色卡与世界书，给 `conversation` 挂上角色。
  *
  * ## 这一版推翻了一条 v6 的判断，而且是故意的

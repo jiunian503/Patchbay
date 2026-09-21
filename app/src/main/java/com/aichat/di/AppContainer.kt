@@ -4,6 +4,7 @@ import android.content.Context
 import com.aichat.chat.ChatSession
 import com.aichat.chat.ConversationEngine
 import com.aichat.chat.ConversationStore
+import com.aichat.chat.GreetingSource
 import com.aichat.chat.MessageCursor
 import com.aichat.chat.MonotonicIds
 import com.aichat.chat.StoredMessage
@@ -209,6 +210,24 @@ class AppContainer(context: Context) : ChatDeps {
      */
     private val promptSource: SystemPromptSource by lazy {
         CharacterSystemPromptSource(
+            characterIdOf = ::effectiveCharacterId,
+            characters = characters,
+        )
+    }
+
+    /**
+     * 新会话里角色先说的那一句（角色卡上的「开场白」）。
+     *
+     * 和 [promptSource] 分开，是因为两者的**消费方式不同**：那个每轮解析
+     * 一次、拼进请求；这个只在会话还是空的时候问一次，拿到之后
+     * `ChatSession` 会把它**落成一条消息**。
+     *
+     * 同样传 [effectiveCharacterId] 的引用 —— 「会话行还没建出来时选择
+     * 暂存在设置里」这件事只有这里知道，自己去查 DAO 的话，
+     * 新建对话里选的角色会连开场白一起被漏掉。
+     */
+    private val greetingSource: GreetingSource by lazy {
+        CharacterGreetingSource(
             characterIdOf = ::effectiveCharacterId,
             characters = characters,
         )
@@ -683,6 +702,8 @@ class AppContainer(context: Context) : ChatDeps {
             // 角色人设 + 世界书命中条目。解析交给 ChatSession 做，
             // 因为世界书要扫历史，而历史只有那边才有
             promptSource = promptSource,
+            // 开场白：会话还是空的时候，落成「角色说的第一句话」
+            greetingSource = greetingSource,
         )
     }
 

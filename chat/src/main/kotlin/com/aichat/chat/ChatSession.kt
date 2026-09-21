@@ -90,6 +90,18 @@ class ChatSession(
      * （世界书就是扫历史命中的），而历史只有 [reply] 里才有。
      */
     private val promptSource: SystemPromptSource? = null,
+
+    /**
+     * 新会话里角色先说的那一句（角色卡上的「开场白」）。
+     *
+     * **默认 `null`**：不落任何开场白，行为与加这个参数之前完全一样 ——
+     * 和 [promptSource] 同一个理由，这个能力也是加法不是替换。
+     *
+     * 它和 [promptSource] 分开，是因为两者**要的东西不同**：那个每轮都要
+     * 解析一次提示词，这个只在新会话的第一条消息之前问一次，而且拿到
+     * 之后要**写库**（落成一条 assistant 消息），不只是拼进请求。
+     */
+    private val greetingSource: GreetingSource? = null,
 ) {
 
     /**
@@ -111,6 +123,11 @@ class ChatSession(
 
         val startedAt = clock()
         store.ensureConversation(conversationId, title = "", now = startedAt)
+
+        // 开场白必须在**用户那句话之前**落盘 —— 它要排在对话的最前面。
+        // 靠落盘顺序就够了：id 是单调递增的，而排序键是
+        // `(created_at, id)`，所以同一毫秒内先落的那条排在前面
+        persistGreeting(conversationId, startedAt)
 
         // 先把用户的话存下来。顺序很重要：先存再取 history，
         // 否则这次输入就不在上下文里了
@@ -185,6 +202,59 @@ class ChatSession(
         store.deleteFrom(conversationId, from)
         emitAll(reply(conversationId, config))
     }
+
+    /**
+     * 会话里一条消息都没有时，把角色卡上的开场白落成第一条 assistant 消息。
+     *
+     * ## 条件为什么是「一条消息都没有」，而不是「会话行刚建出来」
+     *
+     * 用户可以在**中途**给一个老会话换角色。那种情况下插一条「角色先开口」
+     * 会把它塞到对话中间 —— 界面上就是「聊到一半角色突然自我介绍了一下」。
+     * 所以只在空会话里落；而空会话只可能来自「刚建出来还没说话」和
+     * 「用户把消息清空过」两种情形，这两种情况下让角色先开口都是对的。
+     *
+     * ## 为什么不会重复落
+     *
+     * [send] 落完开场白紧接着就落用户那条消息，所以「空会话」这个条件
+     * 之后再也不成立。用户把消息全删了再发，那确实等于重开一场 ——
+     * 再给一次开场白是对的。
+     *
+     * ## 它删不掉，这是故意的
+     *
+     * 落完开场白紧跟着就是用户那条消息，所以开场白**永远不会是最后一条
+     * assistant 消息**，而「重新生成」只作用在最后一条 assistant 上。
+     * 于是它不可能被一次误点抹掉 —— 卡作者写的东西本来就该是这样。
+     */
+    private suspend fun persistGreeting(conversationId: String, now: Long) {
+        val source = greetingSource ?: return
+        if (!hasNoMessages(conversationId)) return
+
+        val greeting = source.greeting(conversationId)?.trim().orEmpty()
+        if (greeting.isEmpty()) return
+
+        store.save(
+            StoredMessage(
+                id = ids.next(),
+                conversationId = conversationId,
+                message = ChatMessage.assistant(greeting),
+                status = MessageStatus.Complete,
+                createdAt = now,
+            )
+        )
+    }
+
+    /**
+     * 这个会话里一条消息都没有（含未完成的，不含已软删的）。
+     *
+     * 用 [ConversationStore.transcript] 而不是 [ConversationStore.history]：
+     * 后者**滤掉了未完成的消息**，于是「上次被杀进程打断、只留下一条
+     * `Streaming` 的会话」会被误判成空会话，开场白就插到那条半截回复前面去了。
+     *
+     * 只要一条（`limit = 1`），所以哪怕是个几百条的长会话，这也只是一次
+     * `LIMIT 1` 的查询 —— 它在每次发送前都会跑。
+     */
+    private suspend fun hasNoMessages(conversationId: String): Boolean =
+        store.transcript(conversationId, limit = 1).messages.isEmpty()
 
     /**
      * 用「库里现有的历史」跑一轮回复，并全程落盘。

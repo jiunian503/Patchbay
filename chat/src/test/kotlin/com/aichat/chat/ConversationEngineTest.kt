@@ -152,6 +152,95 @@ class ConversationEngineTest {
         assertEquals(1, client.requests[0].messages.size)
     }
 
+    // ---------- 开场白：消息数组不能以 assistant 开头 ----------
+
+    @Test
+    fun `开场白被折进系统提示词，而不是当成第一条 assistant 消息发出去`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        ConversationEngine(client)
+            .send(
+                listOf(ChatMessage.assistant("你来啦。"), ChatMessage.user("你好")),
+                config(),
+            )
+            .toList()
+
+        // Llama-3 那类对话模板要求角色交替、且以 user 开头，一条 assistant
+        // 打头的请求会被服务端直接拒。而「角色先开口」恰好就是这个形状 ——
+        // 它不是异常数据，是我们自己造的
+        val sent = client.requests[0].messages
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertTrue(
+            "开场白要以「你已经说过」的形式留在提示词里：${sent[0].content}",
+            sent[0].content.orEmpty().contains("你来啦。"),
+        )
+    }
+
+    @Test
+    fun `历史以 user 开头时系统提示词一个字都不多`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("ok"))
+
+        ConversationEngine(client).send(history(), config().copy(systemPrompt = "助手")).toList()
+
+        // 这是这次改动最重要的向后兼容保证：老会话（历史以 user 开头，
+        // 没有开场白）发出去的请求和加这个能力之前**逐字节相同**
+        assertEquals("助手", client.requests[0].messages[0].content)
+    }
+
+    @Test
+    fun `开场白后面接的对话原样保留`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        ConversationEngine(client)
+            .send(
+                listOf(
+                    ChatMessage.assistant("你来啦。"),
+                    ChatMessage.user("你好"),
+                    ChatMessage.assistant("进来吧。"),
+                    ChatMessage.user("好"),
+                ),
+                config(),
+            )
+            .toList()
+
+        val sent = client.requests[0].messages
+        assertEquals(listOf("system", "user", "assistant", "user"), sent.map { it.role })
+        assertEquals("你好", sent[1].content)
+        assertEquals("好", sent[3].content)
+    }
+
+    @Test
+    fun `带工具调用的 assistant 消息不会被当成开场白摘掉`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        // 带 tool_calls 的 assistant 消息和它后面的 tool 结果是**一条链**，
+        // 摘掉会变成「tool 结果找不到对应的调用」。这里用一个本身就畸形的
+        // 历史来钉住边界：摘不掉，就原样发出去 —— 那是数据的问题，
+        // 不该被这个整形逻辑悄悄改掉
+        ConversationEngine(client)
+            .send(
+                listOf(
+                    ChatMessage.assistant(
+                        "",
+                        toolCalls = listOf(AssistantToolCall("1", "get_weather", "{}")),
+                    ),
+                    ChatMessage.tool("1", "25°C"),
+                    ChatMessage.user("嗯"),
+                ),
+                config(),
+            )
+            .toList()
+
+        assertEquals(
+            listOf("assistant", "tool", "user"),
+            client.requests[0].messages.map { it.role },
+        )
+    }
+
     @Test
     fun `思维链被累积进最终消息`() = runTest {
         val client = FakeChatClient()

@@ -220,6 +220,9 @@ class CharacterCardParserTest {
         assertTrue("设定要带小节标题：${card.persona}", card.persona.contains("【角色设定】\n镇上的铁匠"))
         assertTrue(card.persona.contains("【性格】\n话少"))
         assertTrue(card.persona.contains("【场景】\n打铁铺"))
+        // 夹具里 first_mes 是空的。空串也是合法结果 —— 下游据此判断
+        // 「这张卡没开场白」，而不是去判 null
+        assertEquals("", card.firstMessage)
     }
 
     @Test
@@ -231,6 +234,10 @@ class CharacterCardParserTest {
             "creator_notes 是给人看的，规格明说不该进提示词：${card.persona}",
             card.persona.contains("照着小说捏的"),
         )
+        // 开场白走**另一个字段**。并进人设的话，模型会把那句「你来啦。」
+        // 当成设定，于是每轮都想再说一遍
+        assertEquals("你来啦。", card.firstMessage)
+        assertFalse("开场白不该进人设：${card.persona}", card.persona.contains("你来啦"))
     }
 
     @Test
@@ -345,12 +352,35 @@ class CharacterCardParserTest {
     // ---- 「装不下」的提示 ----
 
     @Test
-    fun `卡里有开场白会提示`() {
+    fun `主开场白装进开场白字段，不再当成装不下的东西`() {
         val card = parseCard("""{"name":"A","first_mes":"你来啦"}""")
-        assertTrue(
-            "要告诉用户开场白没导进来：${card.warnings}",
+        assertEquals("你来啦", card.firstMessage)
+        assertFalse(
+            "开场白现在装得下了，不该再提示装不下：${card.warnings}",
             card.warnings.any { it.contains("开场白") },
         )
+    }
+
+    @Test
+    fun `备用开场白会被提示没导进来`() {
+        val card = parseCard(
+            """{"name":"A","first_mes":"你来啦","alternate_greetings":["早","晚安"]}"""
+        )
+        assertEquals("你来啦", card.firstMessage)
+        assertTrue(
+            "备用的那两条要说清楚：${card.warnings}",
+            card.warnings.any { it.contains("2 条") && it.contains("备用开场白") },
+        )
+    }
+
+    @Test
+    fun `只有备用开场白时主开场白是空的`() {
+        // 卡里可以只写备用开场白（让用户自己挑一条开局）。
+        // 本版没有「挑开场白」这个入口，所以主开场白是空的 ——
+        // 但备用那几条必须提示，否则用户会以为导进来就能用
+        val card = parseCard("""{"name":"A","alternate_greetings":["早"]}""")
+        assertEquals("", card.firstMessage)
+        assertTrue("备用的要提示：${card.warnings}", card.warnings.any { it.contains("1 条") })
     }
 
     @Test

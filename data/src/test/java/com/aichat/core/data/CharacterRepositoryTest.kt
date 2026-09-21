@@ -36,14 +36,52 @@ class CharacterRepositoryTest {
         name: String = "助手",
         description: String = "",
         persona: String = "你是一位诗人。",
+        firstMessage: String = "",
         entries: List<WorldBookEntryDraft> = emptyList(),
     ) = CharacterDraft(
         id = id,
         name = name,
         description = description,
         persona = persona,
+        firstMessage = firstMessage,
         entries = entries,
     )
+
+    /**
+     * 开场白要**原样**存下来：它里面通常有换行、括号、中文标点，
+     * 而且那是作者写的文本 —— 这一层谁都不该做转义或截断，只裁两端空白。
+     */
+    @Test
+    fun `开场白原样落库，两端空白裁掉`() = runTest {
+        val greeting = "（茶山脚下，苏晚提着灯站在门口）\n……你来啦。"
+        val id = repo.save(draft(firstMessage = "  $greeting  "))
+        assertEquals(greeting, characters.rows.getValue(id).firstMessage)
+    }
+
+    /**
+     * `save` 是**整体替换**：草稿里没带的字段就等于清空。
+     *
+     * 这一条钉住的是个容易踩的坑 —— 开场白是后加的字段，任何一个拼
+     * `CharacterDraft` 的调用点漏了它，用户的开场白就会被一次
+     * 「只改了个名字」的保存悄悄抹掉，而且**不报错**。
+     */
+    @Test
+    fun `更新时开场白整体替换，草稿没带就清空`() = runTest {
+        val id = repo.save(draft(firstMessage = "你好呀。"))
+        assertEquals("你好呀。", characters.rows.getValue(id).firstMessage)
+
+        repo.save(draft(id = id, name = "新名字"))
+
+        val row = characters.rows.getValue(id)
+        assertEquals("新名字", row.name)
+        assertEquals("", row.firstMessage)
+    }
+
+    @Test
+    fun `没填开场白时是空串`() = runTest {
+        val id = repo.save(draft())
+        assertEquals("", characters.rows.getValue(id).firstMessage)
+    }
 
     @Test
     fun `新建角色返回新 id 并落库`() = runTest {

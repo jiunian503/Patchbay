@@ -168,6 +168,7 @@ private fun ImportedCharacter.toDraft() = CharacterDraft(
     name = name,
     description = description,
     persona = persona,
+    firstMessage = firstMessage,
     entries = entries.map {
         WorldBookEntryDraft(
             keys = it.keys,

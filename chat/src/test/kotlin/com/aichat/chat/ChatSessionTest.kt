@@ -235,6 +235,7 @@ class ChatSessionTest {
     private class Env(
         tools: List<Tool> = emptyList(),
         promptSource: SystemPromptSource? = null,
+        greetingSource: GreetingSource? = null,
     ) {
         val store = MemoryStore()
         val client = ScriptedClient()
@@ -247,6 +248,7 @@ class ChatSessionTest {
             clock = { now },
             persistIntervalMs = 400L,
             promptSource = promptSource,
+            greetingSource = greetingSource,
         )
 
         /** 用户消息拿 100，第一条回复行拿 101。 */
@@ -1060,5 +1062,124 @@ class ChatSessionTest {
         // 而那时第一条 system 早就发出去了，改了也没用，只会让
         // 「这一轮到底注入了什么」变得无法复现
         assertEquals(1, calls)
+    }
+
+    // ------------------------------------------------------------ 开场白
+
+    @Test
+    fun `新会话里开场白落成角色说的第一句话`() = runTest {
+        val env = Env(greetingSource = { "（茶山脚下）……你来啦。" })
+        env.client.enqueueText("你好")
+
+        env.session.send("c1", "你好", config).toList()
+
+        // 落盘顺序就是显示顺序（排序键是 created_at, id）：
+        // 开场白必须在用户那句话**之前**
+        assertEquals(
+            listOf(ChatMessage.Role.Assistant, ChatMessage.Role.User),
+            env.store.writes.take(2).map { it.message.role },
+        )
+        val greeting = env.store.writes.first()
+        assertEquals("（茶山脚下）……你来啦。", greeting.message.content)
+        assertEquals(MessageStatus.Complete, greeting.status)
+    }
+
+    @Test
+    fun `开场白在请求里折进系统提示词，而不是当成 assistant 消息发出去`() = runTest {
+        val env = Env(greetingSource = { "你来啦。" })
+        env.client.enqueueText("嗯")
+
+        env.session.send("c1", "你好", config).toList()
+
+        // 消息数组的第一条**不能**是 assistant：Llama-3 那类对话模板要求
+        // 以 user 开头，会直接拒（"Conversation roles must alternate"）
+        val sent = env.client.requests.single().messages
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertTrue(
+            "开场白要以「你已经说过」的形式进系统提示词：${sent.first().content}",
+            sent.first().content.orEmpty().contains("你来啦。"),
+        )
+    }
+
+    @Test
+    fun `开场白会进历史，所以世界书扫得到它`() = runTest {
+        var seen: List<ChatMessage> = emptyList()
+        val env = Env(
+            promptSource = { _, history -> seen = history; null },
+            greetingSource = { "你来啦。" },
+        )
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config).toList()
+
+        // 开场白是角色说的第一句话，属于对话内容 —— 世界书是按内容命中的，
+        // 卡里那句开场白提到的名字/地名就该能激活词条
+        assertEquals(listOf(ChatMessage.Role.Assistant, ChatMessage.Role.User), seen.map { it.role })
+        assertEquals("你来啦。", seen.first().content)
+    }
+
+    @Test
+    fun `会话里已经有消息时不再落开场白`() = runTest {
+        val env = Env(greetingSource = { "你来啦。" })
+        env.store.seed(msg(1, "之前说过的话", ChatMessage.Role.User))
+
+        env.client.enqueueText("好")
+        env.session.send("c1", "第二句", config).toList()
+
+        // 中途给老会话换角色是允许的。那种情况下插一条「角色先开口」会把它
+        // 塞到对话中间 —— 界面上就是「聊到一半角色突然自我介绍了一下」
+        assertFalse(env.store.writes.any { it.message.content == "你来啦。" })
+    }
+
+    @Test
+    fun `开场白只在第一条消息时落一次`() = runTest {
+        val env = Env(greetingSource = { "你来啦。" })
+        env.client.enqueueText("一")
+        env.client.enqueueText("二")
+
+        env.session.send("c1", "第一句", config).toList()
+        env.session.send("c1", "第二句", config).toList()
+
+        assertEquals(1, env.store.writes.count { it.message.content == "你来啦。" })
+    }
+
+    @Test
+    fun `开场白空白时什么也不落`() = runTest {
+        val env = Env(greetingSource = { "   " })
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config).toList()
+
+        assertEquals(ChatMessage.Role.User, env.store.writes.first().message.role)
+    }
+
+    @Test
+    fun `没有开场白来源时不会在用户消息之前插任何东西`() = runTest {
+        val env = Env()
+        env.client.enqueueText("好")
+
+        env.session.send("c1", "在吗", config).toList()
+
+        // 第一次写入就是用户那条 —— 和加 `greetingSource` 之前**完全一样**。
+        // （一次 send 总共写三次：用户那条、assistant 占位、收尾）
+        assertEquals(ChatMessage.Role.User, env.store.writes.first().message.role)
+    }
+
+    @Test
+    fun `编辑重发第一条用户消息不会把开场白删掉`() = runTest {
+        val env = Env(greetingSource = { "你来啦。" })
+        env.client.enqueueText("一")
+        env.client.enqueueText("二")
+        env.session.send("c1", "在吗", config).toList()
+
+        val user = env.store.writes.first { it.message.role == ChatMessage.Role.User }
+        env.session
+            .editAndResend("c1", MessageCursor(user.createdAt, user.id), "改了", config)
+            .toList()
+
+        // 开场白的 created_at 与第一条用户消息**相同**，但 id 更小 ——
+        // 而截断的条件是 `created_at > c OR (created_at = c AND id >= id)`，
+        // 所以它落在「删掉」的那一侧之外。这一条钉住的就是那个同毫秒的边界
+        assertEquals(listOf("你来啦。", "改了"), env.store.contents().take(2))
     }
 }

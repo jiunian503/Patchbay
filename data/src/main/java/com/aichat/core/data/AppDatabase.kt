@@ -38,6 +38,8 @@ import androidx.room.RoomDatabase
  *   `conversation` 加 `character_id`。提示词从「服务商的属性」变成
  *   「可复用的实体」—— v6 当时把提示词放在 `provider` 上的理由被推翻了，
  *   原话和推翻它的理由都记在 [CharacterEntity] 里。
+ * - **v8**：`character` 加 `first_message`（开场白）。它和人设的生命周期
+ *   不同（人设每轮都发，开场白只在会话第一句出现一次），所以是两列。
  */
 @Database(
     entities = [
@@ -49,7 +51,7 @@ import androidx.room.RoomDatabase
         CharacterEntity::class,
         WorldBookEntryEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -118,6 +120,7 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         )
     }
 }

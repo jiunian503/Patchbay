@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 /**
  * 迁移测试：**在设备上**把老版本的库一路升到当前版本，验证老数据无损。
  *
- * 现在覆盖 v1→v2→v3→v4→v5→v6→v7，每一跳单独测一次，另外再加一条「v1 直迁到最新」——
+ * 现在覆盖 v1→v2→v3→v4→v5→v6→v7→v8，每一跳单独测一次，另外再加一条「v1 直迁到最新」——
  * 分段全过不代表连起来能过（某一步可能依赖了上一步没建立的列）。
  *
  * ## 为什么必须有这个测试
@@ -32,7 +32,7 @@ import org.junit.runner.RunWith
  * ## 它靠什么工作
  *
  * `MigrationTestHelper` 会从 androidTest 的 assets 里读导出的 schema JSON
- * （`schemas/com.aichat.core.data.AppDatabase/` 下的 `1.json` … `7.json`，
+ * （`schemas/com.aichat.core.data.AppDatabase/` 下的 `1.json` … `8.json`，
  * 由 `data/build.gradle.kts` 里那句 `assets.srcDir` 挂进来），据此建出真正的
  * 老版本库、跑迁移、再拿 `PRAGMA table_info` 跟当前版本的期望逐列比对。
  *
@@ -563,15 +563,81 @@ class AppDatabaseMigrationTest {
         db.close()
     }
 
+    // ---------------------------------------------------------------- v7 → v8
+
     @Test
-    fun `从v1一路升到v7`() {
+    fun `v7升到v8后老角色还在且多了开场白列`() {
+        // 只加一列。列名、类型亲和性、非空性任何一处和 Room 期望的不同，
+        // runMigrationsAndValidate 都会报 `Migration didn't properly handle`
+        helper.createDatabase(TEST_DB, 7).use { db ->
+            db.execSQL(
+                "INSERT INTO `character` (id, name, description, persona, created_at, updated_at) " +
+                    "VALUES ('ch1', '诗人', '照着古诗捏的', '你是一位诗人。', 1, 1)"
+            )
+            db.execSQL(
+                "INSERT INTO world_book_entry " +
+                    "(id, character_id, keys_json, content, enabled, order_index, case_sensitive) " +
+                    "VALUES ('e1', 'ch1', '[\"老王\"]', '老王是镇上的铁匠。', 1, 0, 0)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, MIGRATION_7_8)
+
+        // 老角色一个字都不能少，开场白必须是**空串**而不是 NULL ——
+        // 空串 = 「这个角色没有开场白」，正是 v7 里所有角色的真实状态；
+        // 而 NULL 会让实体侧那个非空的 `String` 直接对不上。
+        // （`getString` 在列是 NULL 时返回 null，所以这一条断言同时管住了两件事）
+        db.query(
+            "SELECT name, persona, first_message FROM `character` WHERE id = 'ch1'"
+        ).use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("诗人", c.getString(0))
+            assertEquals("你是一位诗人。", c.getString(1))
+            assertEquals("", c.getString(2))
+        }
+
+        // 世界书这张表这一版没动，老词条要原样还在
+        db.query("SELECT content FROM world_book_entry WHERE id = 'e1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("老王是镇上的铁匠。", c.getString(0))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `v8的开场白可以写读`() {
+        helper.createDatabase(TEST_DB, 7).use { db ->
+            db.execSQL(
+                "INSERT INTO `character` (id, name, description, persona, created_at, updated_at) " +
+                    "VALUES ('ch1', '苏晚', '', '', 1, 1)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 8, true, MIGRATION_7_8)
+
+        // 开场白里一定有换行、括号、中文标点 —— 存的是**原样文本**，
+        // 谁都不许在这一层做转义或截断
+        val greeting = "（茶山脚下，苏晚提着灯站在门口）\n……你来啦。"
+        db.execSQL("UPDATE `character` SET first_message = ? WHERE id = 'ch1'", arrayOf(greeting))
+
+        db.query("SELECT first_message FROM `character` WHERE id = 'ch1'").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals(greeting, c.getString(0))
+        }
+
+        db.close()
+    }
+
+    @Test
+    fun `从v1一路升到v8`() {
         // 用户可能是从最早的版本一路升上来的，中间每一跳都要能过。
         // 分段测都通过不代表连起来能过 —— 比如某一步依赖了上一步没建立的列
         helper.createDatabase(TEST_DB, 1).close()
 
         val db = helper.runMigrationsAndValidate(
             TEST_DB,
-            7,
+            8,
             true,
             MIGRATION_1_2,
             MIGRATION_2_3,
@@ -579,6 +645,7 @@ class AppDatabaseMigrationTest {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
         )
 
         // v1 建的消息会补出会话行，那一行的 pinned 必须是 0 而不是 NULL
@@ -591,6 +658,11 @@ class AppDatabaseMigrationTest {
         db.query("SELECT COUNT(*) FROM conversation WHERE character_id IS NOT NULL").use { c ->
             assertTrue(c.moveToFirst())
             assertEquals("老会话不该凭空多出一个角色", 0, c.getInt(0))
+        }
+        // v7 与 v8 两次加列都必须落到表上（v7 那一列是升级上来的库独有的形状）
+        db.query("SELECT COUNT(*) FROM `character` WHERE first_message IS NULL").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("开场白列不能有 NULL", 0, c.getInt(0))
         }
 
         db.close()

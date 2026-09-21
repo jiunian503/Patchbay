@@ -35,6 +35,8 @@ data class CharacterEditUiState(
     val name: String = "",
     val description: String = "",
     val persona: String = "",
+    /** 开场白：新会话里角色先说的那一句。空 = 没有。 */
+    val firstMessage: String = "",
     val entries: List<WorldBookEntryForm> = emptyList(),
     /** 保存成功。界面据此返回上一页。 */
     val saved: Boolean = false,
@@ -65,6 +67,7 @@ class CharacterEditViewModel(
                     name = row?.name.orEmpty(),
                     description = row?.description.orEmpty(),
                     persona = row?.persona.orEmpty(),
+                    firstMessage = row?.firstMessage.orEmpty(),
                     entries = entries.map { entry ->
                         WorldBookEntryForm(
                             id = entry.id,
@@ -86,6 +89,8 @@ class CharacterEditViewModel(
     fun setDescription(value: String) = _state.update { it.copy(description = value) }
 
     fun setPersona(value: String) = _state.update { it.copy(persona = value) }
+
+    fun setFirstMessage(value: String) = _state.update { it.copy(firstMessage = value) }
 
     fun addEntry() = _state.update { it.copy(entries = it.entries + WorldBookEntryForm()) }
 
@@ -132,6 +137,7 @@ class CharacterEditViewModel(
                             name = snapshot.name,
                             description = snapshot.description,
                             persona = snapshot.persona,
+                            firstMessage = snapshot.firstMessage,
                             entries = snapshot.entries.map { it.toDraft() },
                         )
                     )

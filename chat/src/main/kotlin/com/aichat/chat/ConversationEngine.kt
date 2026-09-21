@@ -116,9 +116,18 @@ class ConversationEngine(
      * 被取消时不发任何终止事件 —— 用户按了停止，UI 自己知道。
      */
     fun send(history: List<ChatMessage>, config: ChatConfig): Flow<ChatEvent> = flow {
+        // 「角色先开口」会让消息数组以 assistant 开头，而那个形状有些后端
+        // 直接拒收（见 [proactiveOpening]）。所以把最前面那几条主动发言
+        // 摘出来、折进系统提示词 —— 请求形状合法，模型也照样知道自己说过什么
+        val opening = history.proactiveOpening()
+        val system = listOfNotNull(config.systemMessage(), openingContext(opening))
+            .filter { it.isNotBlank() }
+            .joinToString("\n\n")
+            .ifBlank { null }
+
         val working = mutableListOf<ChatMessage>()
-        config.systemMessage()?.let { working += ChatMessage.system(it) }
-        working += history
+        system?.let { working += ChatMessage.system(it) }
+        working += history.drop(opening.size)
 
         // 跨轮累积：最终答案由多轮文本拼成，用户看到的是一条完整回复
         val allText = StringBuilder()
@@ -277,3 +286,44 @@ internal fun ChatConfig.systemMessage(): String? =
         .filter { it.isNotEmpty() }
         .joinToString("\n\n")
         .ifBlank { null }
+
+/**
+ * 消息数组**最前面**那几条「对话还没开始时角色主动说的话」（角色卡上的开场白）。
+ *
+ * ## 为什么必须把它们从消息数组里摘出来
+ *
+ * 请求里的第一条消息不能是 `assistant`。Llama-3 这类对话模板要求角色
+ * 交替出现、且以 `user` 开头，一条 assistant 打头的请求会被服务端直接拒
+ * （`Conversation roles must alternate user/assistant/...`）。
+ * 而「角色先开口」恰好就是这个形状 —— 它不是异常数据，是我们自己造的。
+ *
+ * ## 为什么不是丢掉，而是折进系统提示词
+ *
+ * 丢掉的话模型不知道自己开过场：用户回了句「你好」，它会当成第一次见面
+ * 重新自我介绍一遍，而界面上那句开场白明明就压在用户那条上面。
+ * 折进系统提示词（见 [openingContext]）两边都保住了。
+ *
+ * ## 只取连续的、没有工具调用的那几条
+ *
+ * 带 `tool_calls` 的 assistant 消息不能这么处理 —— 它和紧跟其后的 tool
+ * 结果是**一条链**，拆开会变成「tool 结果找不到对应的调用」。碰到就停。
+ */
+internal fun List<ChatMessage>.proactiveOpening(): List<ChatMessage> =
+    takeWhile {
+        it.role == ChatMessage.Role.Assistant && it.toolCalls.isEmpty() && it.content.isNotBlank()
+    }
+
+/**
+ * 把开场白写成一段给模型看的上下文。空列表返回空串（调用方据此决定拼不拼）。
+ *
+ * 措辞里那句「不要重复它」是**必要的**：不写的话模型很容易把这段当成
+ * 一条要照做的指令，把开场白原样再说一遍 —— 用户看到的是同一句话连着出现两次。
+ */
+internal fun openingContext(turns: List<ChatMessage>): String {
+    if (turns.isEmpty()) return ""
+    val said = turns.joinToString("\n\n") { it.content.trim() }
+    return "【开场白】\n" +
+        "对话开始时，你已经对用户说过下面这些内容：\n\n" +
+        "$said\n\n" +
+        "不要重复它，直接接着往下说。"
+}

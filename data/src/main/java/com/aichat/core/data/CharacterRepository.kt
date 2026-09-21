@@ -37,6 +37,14 @@ data class CharacterDraft(
     val description: String = "",
     /** 人设正文。会作为系统提示词的第一层注入。 */
     val persona: String = "",
+    /**
+     * 开场白：新会话里角色先说的那一句。空 = 没有开场白。
+     *
+     * 表单上是普通的多行输入框，用户不需要知道它和 [persona] 的区别
+     * （一个每轮都发、一个只说一次）—— 但**导入**时要区分，卡里的
+     * `first_mes` 只能落到这里，落进 [persona] 会让模型每轮重说一遍。
+     */
+    val firstMessage: String = "",
     val entries: List<WorldBookEntryDraft> = emptyList(),
 )
 
@@ -112,6 +120,7 @@ class CharacterRepository(
                     name = name,
                     description = draft.description.trim(),
                     persona = draft.persona.trim(),
+                    firstMessage = draft.firstMessage.trim(),
                     createdAt = createdAt,
                     updatedAt = now,
                 )
