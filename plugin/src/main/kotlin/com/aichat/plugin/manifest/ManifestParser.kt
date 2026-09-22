@@ -422,15 +422,18 @@ object ManifestParser {
     /**
      * 白名单是否放行某个主机。
      *
-     * **必须和 `NetworkGuard` 的判据一致**：大小写不敏感的全等，外加显式的 `*`。
-     * 这里宽松一点（放过了运行时会被拦的东西）会让作者在安装时看不到任何提示，
-     * 直到第一次调用才收到一个看不懂的 403；严格一点（拦下运行时其实能过的）
-     * 会让合法的清单装不上。两边的规则必须是同一条。
+     * **必须和 `NetworkGuard` 的判据一致**：先 `trim`、再大小写不敏感的全等，
+     * 外加显式的 `*`。这里宽松一点（放过了运行时会被拦的东西）会让作者在安装时
+     * 看不到任何提示，直到第一次调用才收到一个看不懂的 403；严格一点（拦下运行时
+     * 其实能过的）会让合法的清单装不上。两边的规则必须是同一条。
+     *
+     * ⚠️ `*` 那一半已经**收口**到 [networkDeclaresAnyHost]（`NetworkGuard` 也走
+     * 它），不再是这里自己写一遍 —— 理由见那个函数的 KDoc。
      */
     private fun networkAllows(m: PluginManifest, host: String): Boolean {
         val declared = m.permissions.network
-        return declared.any { it.trim() == "*" } ||
-            declared.any { it.equals(host, ignoreCase = true) }
+        return networkDeclaresAnyHost(declared) ||
+            declared.any { it.trim().equals(host, ignoreCase = true) }
     }
 
     /**
@@ -614,7 +617,7 @@ object ManifestParser {
             }
         }
 
-        if (p.network.contains("*")) {
+        if (networkDeclaresAnyHost(p.network)) {
             out += ManifestProblem(
                 "$.permissions.network",
                 "声明了 `*`（任意主机）。这等于没有网络限制：插件可以把对话内容发到任何地方。",

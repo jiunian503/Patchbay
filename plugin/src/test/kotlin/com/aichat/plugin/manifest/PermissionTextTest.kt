@@ -271,4 +271,65 @@ class PermissionTextTest {
         assertFalse("read → read 不算变化", read.isExpansionOver(read))
         assertFalse("none → none 不算变化", none.isExpansionOver(none))
     }
+
+    /**
+     * ⭐ 「声明里有 `*`」这个判据**只有一处**（[networkDeclaresAnyHost]）。
+     *
+     * 它被五个地方用：运行时白名单（`NetworkGuard`）、确认弹窗（`ToolConfirmation`）、
+     * 安装校验（`ManifestParser`）、权限清单那一行 `⚠️`（[describe]）、
+     * 以及要不要标红（[isHighRisk]）。
+     *
+     * 抄一遍的后果不是「不一致」，是**一处说危险、另一处说没事** —— 而用户能看到的
+     * 恰好是后一处。同源的错实测已经发生过两次（`ScriptTool` 抄漏了 `anyHost`、
+     * 插件详情页对脚本工具用错了规则），所以那边收成一处，这里钉住。
+     *
+     * 三个**能被测到的渲染点**拉到一起比：`isHighRisk`、[describe] 的 `⚠️` 行、
+     * 以及 `ManifestParser` 给的那条 Warning。最后那个渲染到安装页 ——
+     * 而安装是用户唯一一次真正做决定的机会。
+     */
+    @Test
+    fun `「声明里有星号」这个判据只有一处`() {
+        // 带空格那一例只有函数能表达：`HOST_PATTERN` 锚定了首尾，这种清单装不上。
+        // 它钉的是「比较前先 trim」这个防御性选择 —— 漏认的代价是少弹一次窗
+        assertTrue("「 * 」也该认成任意主机", networkDeclaresAnyHost(listOf(" * ")))
+        assertFalse(
+            "子域通配不是任意主机（项目刻意不支持它，理由见 `NetworkGuard` 的 KDoc）",
+            networkDeclaresAnyHost(listOf("*.example.com")),
+        )
+        assertFalse("一项都没声明时当然没有", networkDeclaresAnyHost(emptyList()))
+
+        listOf(
+            listOf("*"),
+            listOf("api.open-meteo.com"),
+            listOf("api.example.com", "*"),
+            emptyList(),
+        ).forEach { network ->
+            val permissions = PluginPermissions(network = network)
+            val expected = networkDeclaresAnyHost(network)
+
+            assertEquals(
+                "`isHighRisk` 和判据说的不是同一件事：$network",
+                expected,
+                permissions.isHighRisk,
+            )
+            assertEquals(
+                "`describe()` 的 ⚠️ 行和判据说的不是同一件事：$network",
+                expected,
+                permissions.describe().any { it.startsWith("⚠️") },
+            )
+        }
+
+        // 安装校验：声明了 `*` 时必须有一条说「任意主机」的 Warning。
+        // 空声明那一例不进这里 —— 声明式插件没有网络白名单本身就是另一条
+        // 错误（「所有工具调用都会被网络守卫拦下」），和这条判据无关
+        listOf(listOf("*"), listOf("api.open-meteo.com"), listOf("api.example.com", "*"))
+            .forEach { network ->
+                val check = ManifestParser.parse(Manifests.declarative(network = network))
+                assertEquals(
+                    "安装校验和判据说的不是同一件事：$network\n${check.report()}",
+                    networkDeclaresAnyHost(network),
+                    check.problems.any { it.message.contains("任意主机") },
+                )
+            }
+    }
 }

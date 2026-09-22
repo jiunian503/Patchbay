@@ -15,6 +15,7 @@ import com.aichat.plugin.manifest.SettingType
 import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.manifest.displayName
 import com.aichat.plugin.manifest.isHighRisk
+import com.aichat.plugin.manifest.networkDeclaresAnyHost
 import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.mcp.McpToolSnapshot
 import com.aichat.plugin.runtime.mcp.displayName
@@ -235,7 +236,9 @@ class PluginDetailViewModel(
             val view = container.plugins.settingsView(pluginId)
             val registry = container.tools.registry
             val cache = status.mcpCache
-            val anyHost = manifest?.permissions?.network?.contains("*") == true
+            // 判据只有一处（`networkDeclaresAnyHost`）：详情页那个「要不要标红」
+            // 和传给兜底算法的 `anyHost` 必须和运行时、安装校验说的是同一件事
+            val anyHost = networkDeclaresAnyHost(manifest?.permissions?.network.orEmpty())
 
             // 工作区只在两种情况下有意义：插件声明了 filesystem，且它的工具在
             // 本地跑（MCP 的工具在对端手里，本地这份工作区没有读者）。

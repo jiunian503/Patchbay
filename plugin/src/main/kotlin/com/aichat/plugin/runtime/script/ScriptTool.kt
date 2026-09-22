@@ -5,7 +5,7 @@ import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.manifest.ToolSpec
-import com.aichat.plugin.permission.NetworkGuard
+import com.aichat.plugin.manifest.networkDeclaresAnyHost
 import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.ToolResultText
 import kotlinx.serialization.json.JsonObject
@@ -101,7 +101,7 @@ class ScriptTool(
     /** 见类 KDoc：规则整体在 [ToolConfirmation.script]（包括「任意主机一律确认」）。 */
     override val requiresConfirmation: Boolean
         get() = ToolConfirmation.script(
-            anyHost = NetworkGuard.declaresAnyHost(template.network),
+            anyHost = networkDeclaresAnyHost(template.network),
             declared = spec.requiresConfirmation,
         )
 

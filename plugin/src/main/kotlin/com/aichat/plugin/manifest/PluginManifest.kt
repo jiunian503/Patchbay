@@ -259,7 +259,7 @@ fun PluginPermissions.describe(): List<String> {
     val out = mutableListOf<String>()
 
     when {
-        network.contains("*") -> out += "⚠️ 网络：可以访问任意地址（没有限制）"
+        networkDeclaresAnyHost(network) -> out += "⚠️ 网络：可以访问任意地址（没有限制）"
         network.isEmpty() -> out += "网络：不访问网络"
         else -> out += "网络：只能访问 ${network.joinToString("、")}"
     }
@@ -283,6 +283,32 @@ fun PluginPermissions.describe(): List<String> {
 }
 
 /**
+ * 网络声明里有没有 `*`（任意主机）。
+ *
+ * ## ⚠️ 这个判据**只有这一处**
+ *
+ * 它是「这条声明到底放行了多少」的最底层判断，被五个地方用：
+ *
+ * 1. 运行时白名单 —— `NetworkGuard.allowsAnyHost`（放行一切主机）
+ * 2. 确认弹窗 —— `ToolConfirmation`（任意主机一律确认，脚本形态也走它）
+ * 3. 安装校验 —— `ManifestParser`（声明了 `*` 时给一条 Warning）
+ * 4. 安装页 / 详情页的权限行 —— [describe]（那句 `⚠️ 可以访问任意地址`）
+ * 5. 要不要标红 / 详情页兜底 —— [isHighRisk] 与 `PluginDetailViewModel`
+ *
+ * 抄一遍的后果不是「不一致」，是**一处说危险、另一处说没事** ——
+ * 而用户能看到的恰好是后一处。同源的错实测已经发生过两次（`ScriptTool`
+ * 抄漏了 `anyHost`、详情页对脚本工具用错了规则），所以这里收成一处。
+ *
+ * ## 为什么比较前先 `trim`
+ *
+ * 因为 `ManifestParser` 允许的 `*` 只有裸的 `*`（`HOST_PATTERN` 锚定了
+ * 首尾），所以对**能装上的**清单，`trim()` 与全等等价 —— 它是防御性的：
+ * 万一哪天有别的路径塞进一个带空格的声明，这里也认它是任意主机。
+ * 偏向「认成任意主机」是有意的：漏认的代价是**少弹一次窗**。
+ */
+fun networkDeclaresAnyHost(declared: List<String>): Boolean = declared.any { it.trim() == "*" }
+
+/**
  * 这个插件有没有需要用户额外留意的权限。
  *
  * 安装界面据此决定要不要把权限区标红。**不看数量看性质**：
@@ -299,11 +325,11 @@ fun PluginPermissions.describe(): List<String> {
  * 它们仍然会出现在 [describe] 的清单里（照实说明不兑现），
  * 只是不触发「需要你留意」这个判断。**等哪天真的支持了，记得回来加**。
  *
- * 反过来说 `network.contains("*")` 是真会发生的：`PluginHost` 用它构造
+ * 反过来说 [networkDeclaresAnyHost] 为真是真会发生的：`PluginHost` 用它构造
  * `NetworkGuard`，白名单外的主机第一次连接就被拦下 —— 所以 `*` 值得标红。
  */
 val PluginPermissions.isHighRisk: Boolean
-    get() = network.contains("*")
+    get() = networkDeclaresAnyHost(network)
 
 @Serializable
 enum class DeviceCapability {
