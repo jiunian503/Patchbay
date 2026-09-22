@@ -33,6 +33,8 @@ import org.junit.Test
  *   要么直接含一个裁决词，要么把裁决外包给 [retryAdvice] / [describeHttpStatus]
  *   （那两个函数有自己的第二条测试兜着）
  * - 状态码那两档（[isRetryableStatus] 与 [retryAdvice]）必须**同进同退**
+ * - 网络故障那句裁决（`NETWORK_RETRY_ADVICE`）**只能定义一次** —— 它原来在
+ *   `:plugin` 里写了四遍
  *
  * 所以换措辞不会红，但**新加一个 throw 点忘了写裁决会红** —— 那正是它要防的。
  */
@@ -59,8 +61,17 @@ class McpFailureVerdictTest {
     /** 「别重试」那一侧的裁决词（不含 [canRetry]）。 */
     private val cannotRetry = verdicts - canRetry
 
-    /** 允许「把裁决外包给一个自己有守卫的函数」。 */
-    private val delegated = listOf("retryAdvice(", "describeHttpStatus(")
+    /**
+     * 允许「把裁决外包给一处**自己有守卫**的实现」。
+     *
+     * `NETWORK_RETRY_ADVICE` 是一个常量（它由本文件的「网络重试的裁决只在 domain
+     * 定义一次」那条守着 —— 全仓 main 源码里含那句话的字面量只允许一处），另两个是函数。
+     *
+     * ⚠️ 这是一张**手写的**白名单：新引入一种外包形式就要把它加进来。误报方向是安全的
+     * （红，而不是静默放过）—— 实测加这个常量时，正是这条守卫先把「实参里没有裁决词」
+     * 报了出来，而不是让它悄悄溜过去。
+     */
+    private val delegated = listOf("retryAdvice(", "describeHttpStatus(", "NETWORK_RETRY_ADVICE")
 
     // ------------------------------------------------------------------ 一、状态码
 
@@ -118,6 +129,52 @@ class McpFailureVerdictTest {
                 saysCan,
             )
         }
+    }
+
+    /**
+     * ⭐ 网络重试的裁决**只在 `:domain` 定义一次**。
+     *
+     * 这句话原来在 `:plugin` 里写了四遍（`DeclarativeTool` 两处、`McpClient`、
+     * `McpHttpTransport`）—— 前缀各不相同、这半句一字不差，改措辞时漏一处不会有
+     * 任何东西变红。抽成 `NETWORK_RETRY_ADVICE` 之后，这条守卫钉住「不许再硬编码一遍」。
+     *
+     * 判据是**字面量**：扫全仓 main 源码，含「这是网络问题」的字符串字面量只允许有一处
+     * —— 就是常量定义本身。
+     */
+    @Test
+    fun `网络重试的裁决只在 domain 定义一次`() {
+        val mainRoots = listOf("domain", "plugin", "chat", "tools", "network", "data", "app")
+            .map { File(sourceRoot, "$it/src/main") }
+            .filter { it.isDirectory }
+        assertTrue(
+            "只找到 ${mainRoots.size} 个 main 源码目录 —— 扫描在看空气",
+            mainRoots.size >= 5,
+        )
+
+        val hits = mutableListOf<String>()
+        mainRoots.forEach { root ->
+            root.walkTopDown()
+                .filter { it.isFile && it.extension == "kt" }
+                .forEach { file ->
+                    LITERAL.findAll(file.readText()).forEach { m ->
+                        if (m.value.contains("这是网络问题")) {
+                            hits += "${file.relativeTo(sourceRoot).invariantSeparatorsPath}: ${m.value.take(60)}"
+                        }
+                    }
+                }
+        }
+
+        assertEquals(
+            "「这是网络问题，可以稍后重试。」只能在 `:domain` 的 ErrorText.kt 里定义一次，" +
+                "别处要用 NETWORK_RETRY_ADVICE。现在这些地方又硬编码了一遍：\n" +
+                hits.joinToString("\n"),
+            1,
+            hits.size,
+        )
+        assertTrue(
+            "那一处应该是常量定义，现在落在：$hits",
+            hits.single().contains("ErrorText.kt"),
+        )
     }
 
     // ------------------------------------------------------------------ 二、源码扫描

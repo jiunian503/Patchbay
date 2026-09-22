@@ -1,5 +1,6 @@
 package com.aichat.plugin.runtime.mcp
 
+import com.aichat.domain.text.NETWORK_RETRY_ADVICE
 import com.aichat.domain.text.errorDetail
 import com.aichat.network.CappedSource
 import com.aichat.network.ResponseTooLargeException
@@ -118,8 +119,7 @@ internal class McpHttpTransport(
         } catch (e: IOException) {
             // 网络故障和「被白名单拒绝」分开报：前者可以重试，后者重试没有意义
             throw McpFailure(
-                "连接 MCP 服务 ${endpoint.host} 失败：${errorDetail(e)}。" +
-                    "这是网络问题，可以稍后重试。",
+                "连接 MCP 服务 ${endpoint.host} 失败：${errorDetail(e)}。" + NETWORK_RETRY_ADVICE,
                 retryable = true,
                 cause = e,
             )

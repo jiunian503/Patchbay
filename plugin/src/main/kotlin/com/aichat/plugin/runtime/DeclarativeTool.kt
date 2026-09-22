@@ -1,5 +1,6 @@
 package com.aichat.plugin.runtime
 
+import com.aichat.domain.text.NETWORK_RETRY_ADVICE
 import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
@@ -163,8 +164,7 @@ class DeclarativeTool(
             // 网络故障和「被白名单拒绝」要分开报：前者可以重试，后者重试没有意义。
             // 混成一句话的话，模型会对着一个永远不会成功的地址反复试
             return ToolResult.error(
-                "请求 ${url.host} 失败：${errorDetail(e)}。" +
-                    "这是网络问题，可以稍后重试。",
+                "请求 ${url.host} 失败：${errorDetail(e)}。" + NETWORK_RETRY_ADVICE,
             )
         }
 
@@ -422,7 +422,7 @@ class DeclarativeTool(
      * 这里不再自己判一遍。
      */
     internal fun readFailedMessage(detail: String): String =
-        "读取响应失败：$detail。这是网络问题，可以稍后重试。"
+        "读取响应失败：$detail。" + NETWORK_RETRY_ADVICE
 
     private fun readResult(response: okhttp3.Response, url: HttpUrl): ToolResult {
         val body = try {

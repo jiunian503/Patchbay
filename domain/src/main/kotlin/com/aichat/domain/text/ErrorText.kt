@@ -28,3 +28,20 @@ package com.aichat.domain.text
  */
 fun errorDetail(t: Throwable): String =
     t.message?.takeIf { it.isNotBlank() } ?: "未知错误"
+
+
+/**
+ * 网络故障的裁决 —— 「稍后再试一次可能就好了」。
+ *
+ * ⚠️ 这句话**必须自己说清能不能重试**：模型只拿得到文案，拿不到任何标志位
+ * （`McpFailure.retryable` 是给宿主看的，见它的 KDoc）。所以它不是装饰性的后缀，
+ * 而是模型唯一的行为依据 —— 少了它，模型会对着一个永远不会成功的地址反复试。
+ *
+ * 原来它在 `:plugin` 里**写了四遍**（`DeclarativeTool` 的「请求失败」与「读响应失败」、
+ * `McpClient` 的兜底、`McpHttpTransport` 的连接失败），前缀各不相同、这半句一字不差。
+ * 那两处的注释还各自写着「这条语义只有一份实现」—— 收口到这里，那句话才成立。
+ *
+ * 由 `McpFailureVerdictTest` 里的源码扫描守着：全仓 main 源码里含「这是网络问题」的
+ * 字面量只允许有一处，就是这里。
+ */
+const val NETWORK_RETRY_ADVICE: String = "这是网络问题，可以稍后重试。"
