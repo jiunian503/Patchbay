@@ -2,6 +2,8 @@ package com.aichat.ui.plugins
 
 import com.aichat.plugin.manifest.HttpMethod
 import com.aichat.plugin.manifest.PluginManifest
+import com.aichat.plugin.manifest.PluginRuntimeKind
+import com.aichat.plugin.manifest.ToolSpec
 import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.mcp.McpToolSnapshot
 
@@ -104,7 +106,8 @@ internal fun emptyToolsMessage(broken: Boolean, isMcp: Boolean, hasCache: Boolea
  * - 「作者没写 + POST」（真实规则：会问你）被显示成「不会打扰你」
  * - 声明了 `network: ["*"]` 的工具也一样漏
  *
- * 现在两条兜底都走 [ToolConfirmation]，和真正拦下调用的那个值**是同一份实现**。
+ * 现在三条兜底都走 [ToolConfirmation]（见 [fallbackConfirmation]），
+ * 和真正拦下调用的那个值**是同一份实现**。
  *
  * 收一个查表函数而不是收注册表，是为了让这条路径**能被直接测**：
  * 测试传 `{ null }` 就等价于「插件没装配」，不用造一个注册表。
@@ -128,19 +131,55 @@ internal fun toolRows(
         }
     }
 
-    return manifest?.tools.orEmpty().map { spec ->
+    // 落到一个非空局部变量：`manifest` 是参数里的可空值，在 lambda 里做不了智能
+    // 转换。而它真为 null 时 `tools` 本来就是空的，提前返回是等价的
+    val loaded = manifest ?: return emptyList()
+    return loaded.tools.map { spec ->
         PluginToolRow(
             name = spec.name,
             description = spec.description,
             requiresConfirmation = registered(spec.name)
-                ?: ToolConfirmation.declarative(
-                    anyHost = anyHost,
-                    declared = spec.requiresConfirmation,
-                    // `request` 为空是校验错误，运行时那个工具压根不会装配出来
-                    // （见 `PluginHost`）。这里按 `RequestSpec` 的默认值取 GET，
-                    // 和「没有这个工具」这件事不矛盾
-                    method = spec.request?.method ?: HttpMethod.Get,
-                ),
+                ?: fallbackConfirmation(runtime = loaded.runtime, anyHost = anyHost, spec = spec),
         )
     }
+}
+
+/**
+ * 注册表里查不到时，详情页自己算的那一遍。
+ *
+ * ## ⚠️ 必须先认运行形态
+ *
+ * 声明式的兜底看 HTTP 方法（GET 免确认，见 [ToolConfirmation.declarative]），
+ * 脚本形态没有方法可依、**默认确认**（见 [ToolConfirmation.script]）——
+ * 两条规则在 `requiresConfirmation` 没写时给出**相反**的值。
+ *
+ * 而脚本插件的 `spec.request` **恒为 `null`**（那是声明式专用的字段），
+ * 所以「拿脚本工具按声明式算」不会报错、不会崩，只会安静地显示反话：
+ * 真正会弹窗的工具被写成「调用前不会打扰你」。
+ *
+ * 这个错曾经只修了一半 —— 运行时那条（`ScriptTool`）改了，这里没改。
+ */
+private fun fallbackConfirmation(
+    runtime: PluginRuntimeKind,
+    anyHost: Boolean,
+    spec: ToolSpec,
+): Boolean = when (runtime) {
+    PluginRuntimeKind.Script -> ToolConfirmation.script(
+        anyHost = anyHost,
+        declared = spec.requiresConfirmation,
+    )
+
+    // 声明式 / 原生库 / MCP（`isMcp` 为真时走不到这里，但枚举要穷尽）：
+    // 都按「这个工具有 HTTP 请求模板」那条算，和以前一致
+    PluginRuntimeKind.Declarative,
+    PluginRuntimeKind.Native,
+    PluginRuntimeKind.Mcp,
+    -> ToolConfirmation.declarative(
+        anyHost = anyHost,
+        declared = spec.requiresConfirmation,
+        // `request` 为空是校验错误，运行时那个工具压根不会装配出来
+        // （见 `PluginHost`）。这里按 `RequestSpec` 的默认值取 GET，
+        // 和「没有这个工具」这件事不矛盾
+        method = spec.request?.method ?: HttpMethod.Get,
+    )
 }

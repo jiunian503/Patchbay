@@ -28,6 +28,9 @@ import org.junit.Test
  * - [toolRows]：注册表里查不到时，兜底算出来的确认策略必须和**真正生效**
  *   的那条规则一致。原来它自己抄了一遍（`spec.requiresConfirmation == true`），
  *   于是「作者没写 + POST」被显示成「不会打扰你」，声明了任意主机的也一样漏。
+ * - ⚠️ 而**脚本形态**连「抄一遍」都算不上：它原来走的是声明式那条兜底，
+ *   而脚本插件没有 `request` 模板 ⇒ 声明式规则落到「GET 免确认」，
+ *   脚本规则的默认却是「确认」。**两条规则相反**，见 [fallbackConfirmation]。
  */
 class PluginDetailUiTest {
 
@@ -171,6 +174,67 @@ class PluginDetailUiTest {
     }
 
     @Test
+    fun `脚本插件的兜底默认是确认，不是按 HTTP 方法免确认`() {
+        // 脚本插件的 `request` 恒为 null（那是声明式专用的字段），所以「拿脚本工具
+        // 按声明式算」不会报错、不会崩，只会安静地落到「GET 免确认」——
+        // 而脚本形态宿主看不到请求，没有「安全方法」这个依据，默认是**确认**。
+        // 两条规则在这一格是**相反**的，算错就把会弹窗的工具写成「不会打扰你」
+        val manifest = manifestOf(
+            runtime = PluginRuntimeKind.Script,
+            tools = listOf(scriptSpec("csv_stats")),
+        )
+
+        val rows = toolRows(
+            isMcp = false,
+            cache = null,
+            manifest = manifest,
+            registered = { null },
+            anyHost = false,
+        )
+
+        assertTrue(
+            "作者没写 ⇒ 脚本形态默认确认：${rows.single().requiresConfirmation}",
+            rows.single().requiresConfirmation,
+        )
+    }
+
+    @Test
+    fun `脚本插件作者签的字有效，但任意主机压过它`() {
+        // 反向用例：脚本形态的默认是「确认」，可作者仍然可以写 false 明确担保 ——
+        // 少了这一条，把规则写成「脚本一律确认」也照样能过
+        val signed = manifestOf(
+            runtime = PluginRuntimeKind.Script,
+            tools = listOf(scriptSpec("csv_stats", requiresConfirmation = false)),
+        )
+        assertFalse(
+            "作者签了字 ⇒ 免确认",
+            toolRows(
+                isMcp = false,
+                cache = null,
+                manifest = signed,
+                registered = { null },
+                anyHost = false,
+            ).single().requiresConfirmation,
+        )
+
+        val anyHost = manifestOf(
+            runtime = PluginRuntimeKind.Script,
+            network = listOf("*"),
+            tools = listOf(scriptSpec("csv_stats", requiresConfirmation = false)),
+        )
+        assertTrue(
+            "任意主机压过作者那句 false",
+            toolRows(
+                isMcp = false,
+                cache = null,
+                manifest = anyHost,
+                registered = { null },
+                anyHost = true,
+            ).single().requiresConfirmation,
+        )
+    }
+
+    @Test
     fun `MCP 的兜底看对端的 readOnly，且任意主机压过它`() {
         val cache = listOf(
             snapshot("ro", readOnly = true),
@@ -224,14 +288,23 @@ class PluginDetailUiTest {
         request = RequestSpec(method = method, path = "/$name"),
     )
 
+    /** 脚本形态的工具：**没有** `request`（那是声明式专用的字段）。 */
+    private fun scriptSpec(name: String, requiresConfirmation: Boolean? = null) = ToolSpec(
+        name = name,
+        description = "$name 的说明",
+        parameters = JsonObject(emptyMap()),
+        requiresConfirmation = requiresConfirmation,
+    )
+
     private fun manifestOf(
         network: List<String> = emptyList(),
         tools: List<ToolSpec> = emptyList(),
+        runtime: PluginRuntimeKind = PluginRuntimeKind.Declarative,
     ) = PluginManifest(
         id = "pub.test.detail",
         name = "测试插件",
         version = "1.0",
-        runtime = PluginRuntimeKind.Declarative,
+        runtime = runtime,
         permissions = PluginPermissions(network = network),
         tools = tools,
     )
