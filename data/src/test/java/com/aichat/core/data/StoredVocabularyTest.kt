@@ -1,5 +1,6 @@
 package com.aichat.core.data
 
+import com.aichat.chat.ChatMessage
 import com.aichat.chat.MessageStatus
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -7,21 +8,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 落库用的状态词表（[MessageStatus.wire]）与 SQL 里**写死的字符串**必须一致。
+ * 落库词表的守卫：Kotlin 侧的枚举 / 映射函数，与 SQL 里**写死的字符串**必须一致。
  *
- * ## 它在守什么
+ * 目前守两套，而**两套的失败方式不一样**，所以守的姿势也不一样：
  *
- * 同一套词表写在两个地方：
+ * | 词表 | Kotlin 侧 | SQL 侧 |
+ * |---|---|---|
+ * | 消息状态 | `:chat` 的 [MessageStatus.wire] | `MessageDao` / `Migrations` 里的 `'streaming'` / `'failed'` / `'complete'` |
+ * | 消息角色 | `:data` 的 `toWire()` / `roleFromWire()` | `Migrations` 里的 `DEFAULT 'user'` |
  *
- * | 在哪 | 形态 |
- * |---|---|
- * | `:chat` 的 [MessageStatus] | 枚举的 `wire` 属性 |
- * | `:data` 的 `MessageDao` / `Migrations` | SQL 文本里的 `'streaming'` / `'failed'` / `'complete'` |
+ * ## 状态：两边**没有任何编译期联系**
  *
- * 两边**没有任何编译期联系** —— `@Query` 要的是编译期常量，而 `MessageStatus.Streaming.wire`
- * 是枚举的属性，写不进注解。于是改一边、另一边不会报错。
+ * `@Query` 要的是编译期常量，而 `MessageStatus.Streaming.wire` 是枚举的属性，写不进注解。
+ * 于是改一边、另一边不会报错。
  *
- * ## 改错了会怎样（三种，全都是静默的）
+ * ### 改错了会怎样（三种，全都是静默的）
  *
  * 1. `recentIn` 的 `status != 'streaming'` 失效 ⇒ **没写完的半截回复被喂给模型**，
  *    它会以为自己上一轮就是这么说的，于是接着往下编而不是重新回答。
@@ -33,6 +34,19 @@ import org.junit.Test
  * **一律当 `Complete`**，于是老消息全部从「写了一半」「报错了」变成「写完了」，
  * 界面上一点区别都看不出来。这也是 [MessageStatus] 的 KDoc 早就写着
  * 「不要用 `enum.name` 或 `ordinal`」的原因 —— 只是**没有任何东西在守它**。
+ *
+ * ## 角色：两个方向**只被编译器保证了一半**
+ *
+ * `toWire()` 与 `roleFromWire()` 是同一套词表的两个方向，但：
+ *
+ * - **正向**的 `when (this)` 是**穷尽**的 —— 加了新角色不写映射，**编译不过**
+ * - **反向**的 `when (raw)` 有一个 `else -> User` **静默兜底** —— 加了新角色、只改了正向，
+ *   那个角色的消息读回来会**变成 `User`**
+ *
+ * 第二种是真正的坑：读成 `User` 意味着模型会以为**那是用户说的话**，而 `toWire()` 的
+ * KDoc 里早就写着「以后加角色（比如 OpenAI 的 `developer`）时……」—— 也就是说这个场景
+ * 是被计划过的，只是没有任何东西在守它。所以这边最要紧的一条是
+ * **「两个方向互为反函数」**：它把那个 `else` 从「兜底」变成「会被发现」。
  *
  * ## 为什么是「读源码文本」而不是反射
  *
@@ -62,7 +76,7 @@ import org.junit.Test
  * 不跳注释的话守卫会对着解释它自己的注释报警。代价是行尾注释里的字面量会漏掉，
  * 这在本文件守的两处不会发生。
  */
-class StoredStatusVocabularyTest {
+class StoredVocabularyTest {
 
     /**
      * 词表本身是**已经写进用户手机的格式**，改一个字符就要写数据迁移。
@@ -89,7 +103,7 @@ class StoredStatusVocabularyTest {
      */
     @Test
     fun `MessageDao 里写死的状态字面量都来自词表`() {
-        val found = statusLiterals(daoFile, COMPARED)
+        val found = literals(daoFile, COMPARED)
         assertTrue(
             "MessageDao.kt 里一个 `status = '…'` / `status != '…'` 都没扫到 —— " +
                 "SQL 的写法变了、正则对不上，这条测试正在空转",
@@ -119,7 +133,7 @@ class StoredStatusVocabularyTest {
      */
     @Test
     fun `迁移里状态列的默认值也来自词表`() {
-        val found = statusLiterals(migrationsFile, DEFAULTED)
+        val found = literals(migrationsFile, STATUS_DEFAULTED)
         assertTrue(
             "Migrations.kt 里没扫到状态列的 DEFAULT —— 写法和正则对不上了，这条测试正在空转",
             found.isNotEmpty(),
@@ -163,6 +177,75 @@ class StoredStatusVocabularyTest {
         )
     }
 
+    // ---- 角色 --------------------------------------------------------
+
+    /**
+     * 角色的落库字符串同样是冻结格式，理由和状态一样。
+     *
+     * 这一条是**四句写死的 `assertEquals`**，不是遍历枚举去调 `toWire()` ——
+     * 遍历只能证明「映射是自洽的」，证明不了「映射没变过」。冻结要的就是后者。
+     */
+    @Test
+    fun `落库角色字符串是冻结的`() {
+        assertEquals("system", ChatMessage.Role.System.toWire())
+        assertEquals("user", ChatMessage.Role.User.toWire())
+        assertEquals("assistant", ChatMessage.Role.Assistant.toWire())
+        assertEquals("tool", ChatMessage.Role.Tool.toWire())
+    }
+
+    /**
+     * ⭐ `toWire()` 与 `roleFromWire()` 是**同一套词表的两个方向**，必须互为反函数。
+     *
+     * 这是这一套词表里最要紧的一条：正向的 `when (this)` 穷尽（编译器会拦），
+     * 反向的 `when (raw)` 却有 `else -> User` —— 于是「加了新角色、只改了正向」
+     * 这件事**编译得过、跑得动、也不报错**，只是那个角色的消息读回来变成了 `User`，
+     * 看起来像用户自己说的话。
+     *
+     * 遍历枚举而不是列四句：将来加角色时**不用记得回来改这条测试**，
+     * 它会自己把新角色带进来。这正是「反函数」这个说法的好处 ——
+     * 它是一条**对任意新增值都成立**的性质，不是一张会过期的清单。
+     */
+    @Test
+    fun `角色映射的两个方向互为反函数`() {
+        val roles = ChatMessage.Role.entries
+        assertTrue(
+            "ChatMessage.Role 一个值都没取到 —— 这条测试正在空转",
+            roles.isNotEmpty(),
+        )
+
+        roles.forEach { role ->
+            assertEquals(
+                "roleFromWire(role.toWire()) 必须回到同一个角色。\n" +
+                    "两个 when 里少改一处时不会报错，只会让这个角色的消息读回来变成 User" +
+                    "（看起来像用户说的话）：${role.name}",
+                role,
+                roleFromWire(role.toWire()),
+            )
+        }
+    }
+
+    /**
+     * 迁移里给 `role` 列补的默认值，必须是 [ChatMessage.Role.User] 的落库形态。
+     *
+     * v1 没有角色的概念（`role` 列是 v1→v2 才加的），存量消息全是用户和助手混在
+     * 一起的内容，所以默认给 `user`。**为什么是 `User` 而不是别的**：
+     * 当 `Assistant` 会让模型以为那是自己说过的话，当 `System` 则会把它当指令 ——
+     * 都是替用户编了一段他没说过的历史。这一点和 [roleFromWire] 兜底选 `User` 同一个理由。
+     */
+    @Test
+    fun `迁移里角色列的默认值也来自词表`() {
+        val found = literals(migrationsFile, ROLE_DEFAULTED)
+        assertTrue(
+            "Migrations.kt 里没扫到角色列的 DEFAULT —— 写法和正则对不上了，这条测试正在空转",
+            found.isNotEmpty(),
+        )
+        assertEquals(
+            "v1→v2 迁移给 role 列补的默认值必须等于 ChatMessage.Role.User.toWire()",
+            setOf(ChatMessage.Role.User.toWire()),
+            found,
+        )
+    }
+
     // ---- 工具 --------------------------------------------------------
 
     private fun assertContains(haystack: String, needle: String, why: String) {
@@ -173,7 +256,7 @@ class StoredStatusVocabularyTest {
         )
     }
 
-    private fun statusLiterals(file: File, pattern: Regex): Set<String> =
+    private fun literals(file: File, pattern: Regex): Set<String> =
         pattern.findAll(codeOnly(file)).map { it.groupValues[1] }.toSet()
 
     /** 源码去掉整行注释后的文本。 */
@@ -233,7 +316,10 @@ class StoredStatusVocabularyTest {
         val COMPARED = Regex("""\bstatus\s*(?:!=|=)\s*'([a-z_]+)'""")
 
         /** `` ADD COLUMN `status` … DEFAULT 'x' ``。中间那段不允许跨过别的引号。 */
-        val DEFAULTED = Regex("""`status`[^']{0,80}DEFAULT\s+'([a-z_]+)'""")
+        val STATUS_DEFAULTED = Regex("""`status`[^']{0,80}DEFAULT\s+'([a-z_]+)'""")
+
+        /** `` ADD COLUMN `role` … DEFAULT 'x' ``。同上。 */
+        val ROLE_DEFAULTED = Regex("""`role`[^']{0,80}DEFAULT\s+'([a-z_]+)'""")
 
         val WHITESPACE = Regex("""\s+""")
     }
