@@ -80,6 +80,15 @@ private class StubTool(
     override suspend fun execute(arguments: JsonObject): ToolResult = body(arguments)
 }
 
+/**
+ * message 和 `simpleName` **都是 null** 的异常。
+ *
+ * 必须是**匿名对象**：`KClass.simpleName` 只对匿名类和局部类返回 null，
+ * 具名类哪怕不给 message，`simpleName` 也有值。这是 JVM 上的行为，
+ * 也正是「错误信息里会拼出 `null`」那个坑的触发条件。
+ */
+private val anonymousBoom: RuntimeException = object : RuntimeException() {}
+
 private fun delta(
     index: Int = 0,
     id: String? = null,
@@ -459,6 +468,55 @@ class ConversationEngineTest {
         assertTrue(finished.result.isError)
         assertTrue(finished.result.content.contains("网络不可达"))
         assertTrue(events.last() is ChatEvent.Completed)
+    }
+
+    /**
+     * 上一条只验了「异常被转成错误、对话没断」。这条验**那句话本身够不够用** ——
+     * 它是所有工具的最后一道兜底，模型读到的就是它。
+     *
+     * 走到这条兜底时参数**已经过了 JSON 校验**，所以「不是参数格式问题」是可以
+     * 断言的事实；而只说「失败」会把问题丢回给模型，让它改参数重试同一个工具（§111.2）。
+     */
+    @Test
+    fun `工具抛异常时那句错误要说清不是参数问题并给出路`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(delta(0, "call_a", "get_weather", "{}"))
+        client.enqueueRound(ChatStreamEvent.TextDelta("换个办法"))
+
+        val boom = StubTool(body = { throw IllegalStateException("网络不可达") })
+        val events = ConversationEngine(client, SimpleToolRegistry(listOf(boom)))
+            .send(history(), config())
+            .toList()
+
+        val content = events.filterIsInstance<ChatEvent.ToolCallFinished>().single().result.content
+        assertTrue(
+            "得说清错在工具内部，否则模型会去改参数重试：$content",
+            content.contains("工具内部"),
+        )
+        assertTrue(
+            "得给一条出路，不能只说「失败了」：$content",
+            content.contains("告诉用户"),
+        )
+    }
+
+    /**
+     * 老写法是 `${t.message ?: t::class.simpleName}`，而**匿名类的 `simpleName` 是 null** ——
+     * 两者都为 null 时，模型收到的是「工具执行失败：null」，等于什么都没说。
+     */
+    @Test
+    fun `异常连 message 都没有时不会吐出 null`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(delta(0, "call_a", "get_weather", "{}"))
+        client.enqueueRound(ChatStreamEvent.TextDelta("算了"))
+
+        val boom = StubTool(body = { throw anonymousBoom })
+        val events = ConversationEngine(client, SimpleToolRegistry(listOf(boom)))
+            .send(history(), config())
+            .toList()
+
+        val content = events.filterIsInstance<ChatEvent.ToolCallFinished>().single().result.content
+        assertTrue("错误信息里不能出现 null：$content", !content.contains("null"))
+        assertTrue("得给一个能读的说法：$content", content.contains("未知错误"))
     }
 
     @Test
