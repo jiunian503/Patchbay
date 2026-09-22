@@ -304,6 +304,13 @@ android {
                 exclude("**/build/**")
             },
         ).withPathSensitivity(PathSensitivity.RELATIVE)
+
+        // 清单：上面那棵 fileTree **只含 `*.kt`**，而 `SandboxProcessNameTest` 要读
+        // `AndroidManifest.xml` 里的 `android:process` 跟 Kotlin 常量比对。
+        // 只改清单（两边不一致正是它唯一要抓的场景）时，任务会被判 UP-TO-DATE
+        // 整个跳过 —— 和 README 同一个理由，所以同样要显式声明。
+        it.inputs.file("$projectDir/src/main/AndroidManifest.xml")
+            .withPathSensitivity(PathSensitivity.RELATIVE)
       }
     }
 }

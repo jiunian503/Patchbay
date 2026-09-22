@@ -147,8 +147,8 @@ class PatchbayApp : Application() {
          * 沙箱进程名的后缀。
          *
          * **必须和 `AndroidManifest.xml` 里 `<service>` 的 `android:process=":sandbox"` 一致。**
-         * XML 里引用不了 Kotlin 常量，所以这只能靠人保持同步 ——
-         * 两处都写了这条注释，改的时候记得一起改。
+         * XML 里引用不了 Kotlin 常量，所以两边各写了一遍字面量 —— 但**不靠人记**：
+         * `SandboxProcessNameTest` 会把这两个文件读出来比对，不一致就红。
          *
          * 对不上的后果是**沙箱进程会当成主进程启动**：建容器、读数据库、
          * 装崩溃留痕全都跑一遍，而沙箱本来只想跑一段脚本。

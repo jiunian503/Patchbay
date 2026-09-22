@@ -96,6 +96,7 @@
 
           process 的名字（`:sandbox`）必须和 `PatchbayApp.SANDBOX_PROCESS_SUFFIX`
           一致：那边靠它决定「我在沙箱进程里，什么初始化都不做」。
+          这个一致性由 `SandboxProcessNameTest` 守着（两边都是文本，能机械比对）。
         -->
         <service
             android:name=".sandbox.ScriptSandboxService"
