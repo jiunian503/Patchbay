@@ -1,5 +1,6 @@
 package com.aichat.tools
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
@@ -192,7 +193,7 @@ class SearchWebTool(
             }
         } catch (e: IOException) {
             ToolResult.error(
-                "连不上搜索服务（${endpoint.host}）：${e.message ?: e::class.simpleName}。" +
+                "连不上搜索服务（${endpoint.host}）：${errorDetail(e)}。" +
                     "可能是设备没网，也可能是这个地址在这台设备上访问不了。" +
                     "告诉用户这个情况，不要反复重试。",
             )
@@ -674,7 +675,7 @@ class SearchWebTool(
                 // 否则会被下面吞掉当成「测试失败」
                 throw e
             } catch (t: Throwable) {
-                ToolResult.error("测试失败：${t.message ?: t::class.simpleName}")
+                ToolResult.error("测试失败：${errorDetail(t)}")
             }
         }
 

@@ -96,6 +96,28 @@ class WorkspaceUiTest {
         assertEquals(CappedBytes.TooLarge, readCappedBytes(ByteArrayInputStream(text), 6))
     }
 
+    // ── importFailedMessage ───────────────────────────────────────────────
+
+    @Test
+    fun `导入失败那句不再猜是存储空间不够`() {
+        // 那句猜测指向的场景（磁盘满）会被 `PluginWorkspace.writeBytes` 包成
+        // WorkspaceException，而它在调用点**单独有分支** —— 能走到这句的失败
+        // 恰好不是磁盘满。所以这句话一个字都不能留（§109/§110）。
+        val msg = importFailedMessage("SecurityException")
+
+        assertFalse("不许猜存储空间：$msg", msg.contains("存储空间"))
+        assertTrue("原始原因要带上：$msg", msg.contains("SecurityException"))
+    }
+
+    @Test
+    fun `导入失败那句把「不是文件的问题」说清楚并给了动作`() {
+        val msg = importFailedMessage("未知错误")
+
+        assertTrue("大小 / 数量 / 路径都过了检查才走到这里：$msg", msg.contains("不是你选的文件的问题"))
+        assertTrue("得有下一步：$msg", msg.contains("重试一次"))
+        assertTrue("得留反馈的路：$msg", msg.contains("宿主作者"))
+    }
+
     /** 一个「很大」的流，同时数自己被读走了多少字节。 */
     private class CountingStream(private val total: Int) : InputStream() {
         var readBytes = 0

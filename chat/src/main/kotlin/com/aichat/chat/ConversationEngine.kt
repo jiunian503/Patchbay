@@ -4,6 +4,7 @@ import com.aichat.domain.llm.AssistantToolCall
 import com.aichat.domain.llm.ChatStreamEvent
 import com.aichat.domain.llm.ToolArguments
 import com.aichat.domain.llm.ToolCallAccumulator
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.ToolApprover
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolRegistry
@@ -253,9 +254,7 @@ class ConversationEngine(
             //
             // ⚠️ 不写「重试没有用」：引擎不知道这个异常是不是瞬时的（沙箱刚被系统
             // 杀掉这类情况重试就好了），替工具打包票会把人引错（§110）。
-            val detail = t.message?.takeIf { it.isNotBlank() }
-                ?: t::class.simpleName
-                ?: "未知错误"
+            val detail = errorDetail(t)
             ToolResult.error(
                 "工具执行失败：$detail。" +
                     "这是工具内部出的错，不是你参数格式的问题（参数已经过了格式校验）。" +

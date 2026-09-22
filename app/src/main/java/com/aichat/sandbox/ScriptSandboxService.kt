@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.Process
+import com.aichat.domain.text.errorDetail
 import com.aichat.di.pluginHttpClient
 import com.aichat.plugin.runtime.script.ScriptRequest
 import com.aichat.plugin.workspace.PluginWorkspaces
@@ -58,7 +59,7 @@ class ScriptSandboxService : Service() {
                 return SandboxProtocol.json.encodeToString(
                     SandboxProtocol.sandboxBrokenOutcome(
                         pluginName = "（未知插件）",
-                        detail = "请求解不开：${t.message ?: t::class.simpleName}",
+                        detail = "请求解不开：${errorDetail(t)}",
                     ),
                 )
             }

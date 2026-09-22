@@ -1,5 +1,6 @@
 package com.aichat.plugin.host
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.plugin.manifest.AuthSpec
 import com.aichat.plugin.manifest.AuthType
@@ -371,7 +372,7 @@ object PluginHost {
                 problems = listOf(
                     problem(
                         "$.entry.mcp.url",
-                        "连接这个 MCP 服务时出错：${t.message ?: t::class.simpleName}。" +
+                        "连接这个 MCP 服务时出错：${errorDetail(t)}。" +
                             "如果反复出现，请把这个插件的清单发给作者。",
                     ),
                 ),

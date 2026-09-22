@@ -1,6 +1,7 @@
 package com.aichat.network
 
 import com.aichat.domain.io.CappedRead
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.io.readCapped
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -123,7 +124,7 @@ class GitHubReleaseClient(
         val response = try {
             client.newCall(request).execute()
         } catch (e: IOException) {
-            return ReleaseLookup.Failed(ReleaseError.Network(e.describe()))
+            return ReleaseLookup.Failed(ReleaseError.Network(errorDetail(e)))
         }
 
         try {
@@ -226,5 +227,5 @@ private data class ReleaseDto(
     @SerialName("html_url") val htmlUrl: String? = null,
 )
 
-private fun IOException.describe(): String =
-    message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
+// 原来这里有个私有的 `IOException.describe()`（message 为 null 时退回**英文类名**）。
+// 现在统一走 `:domain` 的 `errorDetail` —— 同一个语义只留一份实现（§111.9）

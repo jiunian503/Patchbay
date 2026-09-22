@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.system.Os
 import android.system.OsConstants
+import com.aichat.domain.text.errorDetail
 import com.aichat.plugin.runtime.script.ScriptOutcome
 import com.aichat.plugin.runtime.script.ScriptRequest
 import com.aichat.plugin.runtime.script.ScriptRuntime
@@ -114,7 +115,7 @@ class QuickJsSandboxRuntime(
         } catch (t: Throwable) {
             return SandboxProtocol.sandboxBrokenOutcome(
                 request.pluginName,
-                t.message ?: t::class.simpleName.orEmpty(),
+                errorDetail(t),
             )
         }
 

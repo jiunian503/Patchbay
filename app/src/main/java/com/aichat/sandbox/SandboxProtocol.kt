@@ -1,8 +1,10 @@
 package com.aichat.sandbox
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.plugin.runtime.script.ScriptOutcome
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import kotlinx.serialization.json.Json
 
 /**
@@ -73,7 +75,7 @@ object SandboxProtocol {
         }
     }
 
-    /** 读死因。没有、读不出来、或者内容是空的，一律返回 null（= 意外死亡）。 */
+    /** 读死因。没有、读不出来、或者是空的，一律返回 null（= 意外死亡）。 */
     fun readDeath(filesDir: File): String? = runCatching {
         deathFile(filesDir).takeIf { it.isFile }?.readText()?.trim()?.ifEmpty { null }
     }.getOrNull()
@@ -153,4 +155,34 @@ object SandboxProtocol {
                 "如果还是同样的错，那是这个插件自己的问题，换一个工具或者告诉用户。",
             ScriptOutcome.Kind.ScriptError,
         )
+
+    /**
+     * `host.http` 失败时给脚本的那句话（`SandboxEngine.httpCall` 的兜底）。
+     *
+     * ## 为什么两条分支都必须给动作
+     *
+     * `IOException` 那条本来就有「网络恢复后可以重试」，而 `else` 那条
+     * （原来只写「请求出错：…。」）**没有** —— 两条是同一个兜底里的兄弟，
+     * 一条给了出路一条没给（§111.15）。
+     *
+     * ## 为什么 `else` 那条不写「这是宿主的问题」
+     *
+     * 走到 `else` 的**不一定是宿主 bug**：`builder.method(method, payload)` 对不合法的
+     * HTTP 方法名会抛 `IllegalArgumentException`，而 `method` 是脚本传进来的。
+     * 所以宿主分不出「参数不合预期」和「自己内部出问题」—— 给的是
+     * 「试一次 + 不行就换」，而不是替哪一边打包票（§110）。
+     *
+     * ⚠️ 也不写「重试没有用」：宿主不知道这个异常是不是瞬时的。
+     *
+     * 白名单拒绝（`NetworkDeniedException`）**不经过这里** —— 它那句原文已经是
+     * 写给模型看的，调用点直接用它。
+     */
+    fun httpFailedMessage(t: Throwable): String = when (t) {
+        is IOException ->
+            "网络请求失败：${errorDetail(t)}。网络恢复后可以重试。"
+
+        else ->
+            "请求出错：${errorDetail(t)}。换个参数再试一次；" +
+                "如果还是同样的错，就换一个工具，或者如实告诉用户这个功能现在用不了。"
+    }
 }

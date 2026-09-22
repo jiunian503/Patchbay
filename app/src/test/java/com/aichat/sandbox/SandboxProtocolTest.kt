@@ -2,6 +2,7 @@ package com.aichat.sandbox
 
 import com.aichat.plugin.runtime.script.ScriptOutcome
 import java.io.File
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -173,5 +174,39 @@ class SandboxProtocolTest {
             "得留一条「不是参数问题」的退路：${outcome.message}",
             outcome.message.contains("插件自己的问题"),
         )
+    }
+
+    // ── host.http 的两条兜底 ──────────────────────────────────────────────
+
+    @Test
+    fun `网络断的那条说清可以重试，而且不吐英文类名`() {
+        val msg = SandboxProtocol.httpFailedMessage(IOException("Connection reset"))
+
+        assertTrue("原始原因要带上：$msg", msg.contains("Connection reset"))
+        assertTrue("网络那条要给重试这条路：$msg", msg.contains("网络恢复后可以重试"))
+        assertFalse("不许把英文类名摆出来：$msg", msg.contains("IOException"))
+    }
+
+    @Test
+    fun `非网络的那条也得给动作，但不能替哪一边打包票`() {
+        // 走到这一支的原因宿主分不出来：可能是脚本给的 method 不合法
+        // （`builder.method` 会抛 IllegalArgumentException），也可能是宿主内部的问题。
+        // 所以给的是「试一次 + 不行就换」，而不是「这是宿主的问题」。
+        val msg = SandboxProtocol.httpFailedMessage(IllegalArgumentException("method FOO"))
+
+        assertTrue("原始原因要带上：$msg", msg.contains("method FOO"))
+        assertTrue("得有下一步：$msg", msg.contains("换个参数再试一次"))
+        assertTrue("得留退路：$msg", msg.contains("告诉用户"))
+        assertFalse("不许替宿主打包票：$msg", msg.contains("宿主内部"))
+    }
+
+    @Test
+    fun `message 为 null 的异常不会让那句话吐出 null`() {
+        // 匿名类：KClass.simpleName 对它返回 null，而 message 也没有
+        val anonymous: Throwable = object : RuntimeException() {}
+        val msg = SandboxProtocol.httpFailedMessage(anonymous)
+
+        assertFalse("不能拼出 null：$msg", msg.contains("null"))
+        assertTrue("要有中文兜底：$msg", msg.contains("未知错误"))
     }
 }

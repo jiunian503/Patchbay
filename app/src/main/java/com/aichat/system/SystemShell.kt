@@ -1,5 +1,6 @@
 package com.aichat.system
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.settings.AppSettings
 import com.aichat.tools.ShellOutcome
 import com.aichat.tools.ShellSource
@@ -113,7 +114,7 @@ class SystemShell(private val settings: AppSettings) : ShellSource {
         }.getOrElse {
             // 起不来（比如系统里根本没有 /system/bin/sh —— 理论上不会）
             ShellOutcome(
-                output = "${it.javaClass.simpleName}: ${it.message}",
+                output = "没能启动 shell：${errorDetail(it)}",
                 exitCode = null,
             )
         }

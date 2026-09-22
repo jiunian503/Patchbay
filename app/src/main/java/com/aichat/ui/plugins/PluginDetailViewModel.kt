@@ -5,6 +5,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aichat.core.data.PluginSettingsDraft
+import com.aichat.domain.text.errorDetail
 import com.aichat.di.AppContainer
 import com.aichat.plugin.host.PluginRegistry
 import com.aichat.plugin.manifest.FilesystemScope
@@ -561,10 +562,9 @@ class PluginDetailViewModel(
         when (failure) {
             null -> reportWorkspace("已导入 $name（${formatBytes(picked.bytes.size.toLong())}）")
             is WorkspaceException -> reportWorkspace("导入失败：${failure.message}", failed = true)
-            else -> reportWorkspace(
-                "导入失败：${failure.message ?: failure::class.simpleName}。可能是存储空间不够。",
-                failed = true,
-            )
+            // 走到这里说明不是工作区自己拒的（大小 / 数量 / 路径都过了检查），
+            // 所以不再猜「可能是存储空间不够」—— 那句话指向的场景已经被上一条接走
+            else -> reportWorkspace(importFailedMessage(errorDetail(failure)), failed = true)
         }
     }
 

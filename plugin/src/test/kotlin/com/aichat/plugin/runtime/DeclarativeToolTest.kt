@@ -504,10 +504,8 @@ class DeclarativeToolTest {
         assertTrue("原始原因要带上：$msg", msg.contains("读 body 时连接断了"))
         assertTrue("得给重试这条路，和「请求失败」那条一致：$msg", msg.contains("可以稍后重试"))
 
-        // detail 缺失时不能拼出「读取响应失败：null」——
-        // `e::class.simpleName` 对匿名类就是 null（和 ConversationEngine 那条同形）
-        val blank = probe.readFailedMessage(null)
-        assertFalse("不能拼出 null：$blank", blank.contains("null"))
+        // detail 由调用点传 `errorDetail(e)` —— 「message 为 null 时说什么」那条语义
+        // 现在只有一份实现，在 `:domain` 的 `ErrorTextTest` 里测（这里不再重复测一遍）
     }
 
     // ================================================================ 确认策略

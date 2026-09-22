@@ -1,5 +1,6 @@
 package com.aichat.plugin.workspace
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.plugin.manifest.FilesystemScope
 import java.io.File
 import java.io.IOException
@@ -239,7 +240,7 @@ class PluginWorkspace internal constructor(
         return try {
             file.readText(StandardCharsets.UTF_8)
         } catch (e: IOException) {
-            throw WorkspaceException("读「$path」失败：${e.message ?: e::class.simpleName}。")
+            throw WorkspaceException("读「$path」失败：${errorDetail(e)}。")
         }
     }
 
@@ -301,7 +302,7 @@ class PluginWorkspace internal constructor(
             file.parentFile?.mkdirs()
             file.writeBytes(bytes)
         } catch (e: IOException) {
-            throw WorkspaceException("写「$path」失败：${e.message ?: e::class.simpleName}。")
+            throw WorkspaceException("写「$path」失败：${errorDetail(e)}。")
         }
     }
 

@@ -2,6 +2,7 @@ package com.aichat.sandbox
 
 import android.os.Process
 import android.util.Log
+import com.aichat.domain.text.errorDetail
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
@@ -18,7 +19,6 @@ import com.quickjs.JavaVoidCallback
 import com.quickjs.QuickJS
 import com.quickjs.QuickJSScriptException
 import java.io.File
-import java.io.IOException
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -143,7 +143,7 @@ internal class SandboxEngine(
      */
     private fun failed(request: ScriptRequest, message: String?, cause: Throwable): ScriptOutcome.Failed {
         Log.w(LOG_TAG, "插件 ${request.pluginId} 的脚本出错", cause)
-        val detail = message?.takeIf { it.isNotBlank() } ?: cause::class.simpleName.orEmpty()
+        val detail = message?.takeIf { it.isNotBlank() } ?: errorDetail(cause)
         // 消息构造放在 `SandboxProtocol` 里（那里是纯函数，JVM 上测得到）——
         // 和 deathOutcome / timeoutOutcome / sandboxBrokenOutcome 同一个模式。
         // 这句话里必须带动作：模型看不到 Kind，它只拿到这一个字符串
@@ -303,15 +303,14 @@ internal class SandboxEngine(
             }
         }
     }.getOrElse { t ->
-        val message = when (t) {
-            // 白名单拒绝的原文已经是给模型看的一句话（它包含「插件被允许访问的是…」），
-            // 这里再包一层前缀只会把它埋掉
-            is NetworkDeniedException -> t.message.orEmpty()
-
-            is IOException ->
-                "网络请求失败：${t.message ?: t::class.simpleName}。网络恢复后可以重试。"
-
-            else -> "请求出错：${t.message ?: t::class.simpleName}。"
+        // 白名单拒绝的原文已经是给模型看的一句话（它包含「插件被允许访问的是…」），
+        // 这里再包一层前缀只会把它埋掉
+        val message = if (t is NetworkDeniedException) {
+            t.message.orEmpty()
+        } else {
+            // 其余两种走 SandboxProtocol（纯函数，JVM 上测得到）——
+            // 和 deathOutcome / timeoutOutcome / sandboxBrokenOutcome 同一个模式
+            SandboxProtocol.httpFailedMessage(t)
         }
         envelope(ok = false, error = message)
     }
@@ -387,7 +386,7 @@ internal class SandboxEngine(
             // 走到这里说明是宿主的 bug（磁盘坏了、id 校验没过…）。插件不该
             // 因此拿到一句看不懂的英文，所以包一句能读的，原话留在日志里
             Log.w(LOG_TAG, "工作区操作 $op 出错", t)
-            fsError("工作区操作失败：${t.message ?: t::class.simpleName}。")
+            fsError("工作区操作失败：${errorDetail(t)}。")
         }
     }
 

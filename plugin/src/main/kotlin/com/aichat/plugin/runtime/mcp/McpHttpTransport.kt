@@ -1,5 +1,6 @@
 package com.aichat.plugin.runtime.mcp
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
 import java.io.IOException
@@ -118,7 +119,7 @@ internal class McpHttpTransport(
         } catch (e: IOException) {
             // 网络故障和「被白名单拒绝」分开报：前者可以重试，后者重试没有意义
             throw McpFailure(
-                "连接 MCP 服务 ${endpoint.host} 失败：${e.message ?: e::class.simpleName}。" +
+                "连接 MCP 服务 ${endpoint.host} 失败：${errorDetail(e)}。" +
                     "这是网络问题，可以稍后重试。",
                 retryable = true,
                 cause = e,
@@ -275,7 +276,7 @@ internal class McpHttpTransport(
             )
         } catch (e: IOException) {
             throw McpFailure(
-                "读取 MCP 服务的事件流失败：${e.message ?: e::class.simpleName}。可以稍后重试。",
+                "读取 MCP 服务的事件流失败：${errorDetail(e)}。可以稍后重试。",
                 retryable = true,
                 cause = e,
             )

@@ -1,4 +1,5 @@
 package com.aichat.chat
+import com.aichat.domain.text.errorDetail
 
 /**
  * 一条消息在库里的状态。
@@ -297,5 +298,5 @@ internal fun describeError(t: Throwable): String = when (t) {
 
     is ToolLoopExceededException -> t.message ?: "工具调用轮数超限"
 
-    else -> t.message ?: t::class.simpleName ?: "未知错误"
+    else -> errorDetail(t)
 }

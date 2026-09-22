@@ -1,6 +1,7 @@
 package com.aichat.network
 
 import com.aichat.domain.io.CappedRead
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.io.readCapped
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -145,7 +146,7 @@ class RemoteTextFetcher(
             val response = try {
                 client.newCall(Request.Builder().url(current).build()).execute()
             } catch (e: IOException) {
-                return FetchResult.Failed(FetchError.Network(e.describe()))
+                return FetchResult.Failed(FetchError.Network(errorDetail(e)))
             }
 
             try {
@@ -244,5 +245,5 @@ private fun schemeOf(raw: String): String? {
 internal fun isInsecureDowngrade(userAskedForTls: Boolean, next: HttpUrl): Boolean =
     userAskedForTls && !next.isHttps
 
-private fun IOException.describe(): String =
-    message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
+// 和 `GitHubReleaseClient` 里那个一模一样的私有 `describe()` 一起删掉了 ——
+// 两份实现漂移过的地方，现在只有 `:domain` 的 `errorDetail` 一份

@@ -1,5 +1,6 @@
 package com.aichat.plugin.runtime.mcp
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
@@ -554,7 +555,7 @@ class McpTool(
         // 「工具抛异常」会被引擎捕获成一条没有上下文的错误，
         // 而模型拿到的应该是一句能照着行动的话
         ToolResult.error(
-            "调用 MCP 服务 ${client.host} 失败：${e.message ?: e::class.simpleName}。" +
+            "调用 MCP 服务 ${client.host} 失败：${errorDetail(e)}。" +
                 "这是网络问题，可以稍后重试。",
         )
     }

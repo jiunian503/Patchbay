@@ -81,3 +81,24 @@ internal fun formatBytes(bytes: Long): String = when {
         "${tenths / 10}.${tenths % 10} MB"
     }
 }
+
+/**
+ * 导入文件失败、而且**不是**工作区自己拒绝的（那一类单独有分支）时，提示条上那句话。
+ *
+ * ## 为什么删掉了「可能是存储空间不够」
+ *
+ * 那句猜的原因**指向了一个已经被接走的场景**：磁盘满会让 `writeBytes` 抛
+ * `WorkspaceException`（`PluginWorkspace` 把 `IOException` 包成它，真原因
+ * 就在 message 里），而那一类在调用点**单独有分支**。也就是说能走到这里
+ * 的失败，恰好**不是**磁盘满 —— 用户照着这句话去清空间，白忙一场（§109/§110）。
+ *
+ * ## 为什么删掉了 `failure::class.simpleName`
+ *
+ * 它是 `String?`（匿名类为 null）⇒ 会吐出「导入失败：null」。类名对用户没有意义，
+ * 真正的信息在 `failure.message` 里，而那个已经由 `errorDetail` 兜住了。
+ *
+ * [detail] 由调用点传 `errorDetail(failure)`。
+ */
+internal fun importFailedMessage(detail: String): String =
+    "导入失败：$detail。这不是你选的文件的问题（大小、数量、路径都过了检查）—— " +
+        "是宿主内部出的错，重试一次；如果一直这样，请把这句提示反馈给宿主作者。"

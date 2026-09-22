@@ -1,5 +1,6 @@
 package com.aichat.tools
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
@@ -134,7 +135,7 @@ class FetchUrlTool(
             }
         } catch (e: IOException) {
             ToolResult.error(
-                "连不上 $raw：${e.message ?: e::class.simpleName}。" +
+                "连不上 $raw：${errorDetail(e)}。" +
                     "检查地址拼写，或者这个站点在这台设备上访问不了。",
             )
         }

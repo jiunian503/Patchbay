@@ -1,5 +1,6 @@
 package com.aichat.plugin.runtime
 
+import com.aichat.domain.text.errorDetail
 import com.aichat.domain.tool.Tool
 import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
@@ -160,7 +161,7 @@ class DeclarativeTool(
             // 网络故障和「被白名单拒绝」要分开报：前者可以重试，后者重试没有意义。
             // 混成一句话的话，模型会对着一个永远不会成功的地址反复试
             return ToolResult.error(
-                "请求 ${url.host} 失败：${e.message ?: e::class.simpleName}。" +
+                "请求 ${url.host} 失败：${errorDetail(e)}。" +
                     "这是网络问题，可以稍后重试。",
             )
         }
@@ -413,19 +414,21 @@ class DeclarativeTool(
      *
      * 所以退一步：把**那句话**抽出来直接测。判据是「这句话里有没有那个动作」，
      * 而这正是这条改动唯一要保证的事 —— 见 `DeclarativeToolTest` 里那条用例。
+     *
+     * [detail] 由调用点传 `errorDetail(e)` —— 「message 为 null / 只有空白时说什么」
+     * 这条语义只有一份实现（在 `:domain` 的 `ErrorText` 里，那里测得到），
+     * 这里不再自己判一遍。
      */
-    internal fun readFailedMessage(detail: String?): String =
-        "读取响应失败：${detail?.takeIf { it.isNotBlank() } ?: "未知错误"}。" +
-            "这是网络问题，可以稍后重试。"
+    internal fun readFailedMessage(detail: String): String =
+        "读取响应失败：$detail。这是网络问题，可以稍后重试。"
 
     private fun readResult(response: okhttp3.Response, url: HttpUrl): ToolResult {
         val body = try {
             response.peekBody(MAX_BYTES.toLong()).string()
         } catch (e: IOException) {
-            // 收 `String?`：`e.message` 可能为 null，而 `e::class.simpleName` 对
-            // **匿名类**也是 null —— 和 `ConversationEngine` 那条兜底同一个坑。
-            // 兜底逻辑放在被调的那个函数里，那样它测得到
-            return ToolResult.error(readFailedMessage(e.message ?: e::class.simpleName))
+            // 兜底交给 `errorDetail`：`e.message` 可能为 null，而 `e::class.simpleName`
+            // 对**匿名类**也是 null —— 两个都不能直接摆给模型看（§111.15 / §111.16）
+            return ToolResult.error(readFailedMessage(errorDetail(e)))
         }
 
         if (!response.isSuccessful) {
