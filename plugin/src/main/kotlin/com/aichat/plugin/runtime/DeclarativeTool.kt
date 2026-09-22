@@ -397,11 +397,35 @@ class DeclarativeTool(
 
     // ------------------------------------------------------------------ 读结果
 
+    /**
+     * 读响应体失败时给模型的那句话。
+     *
+     * 和上面 `execute` 里那条「请求 X 失败」是**同一类瞬时故障**：连接已经建起来、
+     * 响应头也收到了，只是读 body 时断了或超时。那条说了「可以稍后重试」，
+     * 这条也必须说 —— 否则模型会以为是自己参数的问题，方向就错了。
+     *
+     * ## 为什么抽成一个函数
+     *
+     * 这条分支（响应头已回、读 body 时才断）在 JVM 测试栈上**造不出来**：
+     * `mockwebserver3` 5.x 移除了 `SocketPolicy`，谎报 `Content-Length` 无效
+     * （MockWebServer 自己算长度），而自定义 `ResponseBody` 要过 `Okio.buffer(...)`，
+     * 那个 Java 入口已废弃、换成扩展函数又得改测试文件的 import 区。
+     *
+     * 所以退一步：把**那句话**抽出来直接测。判据是「这句话里有没有那个动作」，
+     * 而这正是这条改动唯一要保证的事 —— 见 `DeclarativeToolTest` 里那条用例。
+     */
+    internal fun readFailedMessage(detail: String?): String =
+        "读取响应失败：${detail?.takeIf { it.isNotBlank() } ?: "未知错误"}。" +
+            "这是网络问题，可以稍后重试。"
+
     private fun readResult(response: okhttp3.Response, url: HttpUrl): ToolResult {
         val body = try {
             response.peekBody(MAX_BYTES.toLong()).string()
         } catch (e: IOException) {
-            return ToolResult.error("读取响应失败：${e.message ?: e::class.simpleName}")
+            // 收 `String?`：`e.message` 可能为 null，而 `e::class.simpleName` 对
+            // **匿名类**也是 null —— 和 `ConversationEngine` 那条兜底同一个坑。
+            // 兜底逻辑放在被调的那个函数里，那样它测得到
+            return ToolResult.error(readFailedMessage(e.message ?: e::class.simpleName))
         }
 
         if (!response.isSuccessful) {

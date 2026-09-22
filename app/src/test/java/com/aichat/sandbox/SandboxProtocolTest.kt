@@ -154,4 +154,24 @@ class SandboxProtocolTest {
         // 这一句要让用户别去折腾插件 —— 他没做错什么
         assertTrue(outcome.message.contains("不是插件的问题"))
     }
+
+    @Test
+    fun `脚本抛错那句自己把「能不能重试」说出来了`() {
+        val outcome = SandboxProtocol.scriptErrorOutcome("CSV 统计", "TypeError: x is not a function")
+
+        assertEquals(ScriptOutcome.Kind.ScriptError, outcome.kind)
+        // 原始报错要原样带上 —— 作者靠它定位
+        assertTrue(outcome.message.contains("TypeError: x is not a function"))
+        // `ScriptError` 的 KDoc 写着「可以改参数重试」，但**模型看不到分类** ——
+        // 它只拿到这一个字符串，所以动作必须出现在这句话里
+        assertTrue(
+            "得说出可以换个参数再试：${outcome.message}",
+            outcome.message.contains("换个参数再试一次"),
+        )
+        // 但不能替插件打包票：脚本崩也可能是插件自己的 bug，改多少次都一样（§110）
+        assertTrue(
+            "得留一条「不是参数问题」的退路：${outcome.message}",
+            outcome.message.contains("插件自己的问题"),
+        )
+    }
 }

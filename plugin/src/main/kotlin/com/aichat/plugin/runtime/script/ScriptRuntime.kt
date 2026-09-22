@@ -254,7 +254,17 @@ sealed interface ScriptOutcome {
         /** 宿主没装脚本运行时。让用户等宿主升级。 */
         Unavailable,
 
-        /** 脚本自己抛的错（含返回值不是 JSON、入口没导出 `run`）。**可以改参数重试。** */
+        /**
+         * 脚本自己抛的错（含返回值不是 JSON、入口没导出 `run`）。
+         *
+         * ⚠️ **这个分类下的动作不统一，别照分类名一刀切。**
+         * 「脚本抛错」（`SandboxEngine.failed`）可以改参数重试；
+         * 而「缺模块」（`SandboxEngine.missingModule`）**重试没有用** —— 那是插件
+         * 少带了文件，改参数不会让文件出现。
+         *
+         * 所以**两条 message 各自把话说完**，这正是上面那条
+         * 「每一句 message 自己必须说清能不能重试」的由来：分类帮不了模型。
+         */
         ScriptError,
     }
 }

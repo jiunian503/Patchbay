@@ -487,6 +487,29 @@ class DeclarativeToolTest {
         assertTrue(result.content, result.content.contains("可以稍后重试"))
     }
 
+    @Test
+    fun `读响应失败那句也说了可以重试`() {
+        // 这条守的是「读 body 时才断」那条分支 —— 它和上面「请求阶段就断」那条
+        // 是同一类瞬时故障，动作也必须一样。
+        //
+        // ⚠️ **为什么测的是这个函数而不是端到端**：那条分支在 JVM 测试栈上造不出来 ——
+        // `mockwebserver3` 5.x 移除了 `SocketPolicy`；谎报 `Content-Length` 无效
+        // （MockWebServer 自己算）；自定义 `ResponseBody` 要 `Okio.buffer(...)`，
+        // 而那个 Java 入口已废弃，换成扩展函数又得改本文件的 import 区。
+        // 所以退一步：把「那句话」抽成函数直接测 —— 生产代码里 `readResult` 的
+        // catch 调的就是它。**判据是「这句话里有没有那个动作」**，这正是要保证的事。
+        val probe = tool(RequestSpec(path = "/p"))
+        val msg = probe.readFailedMessage("读 body 时连接断了")
+
+        assertTrue("原始原因要带上：$msg", msg.contains("读 body 时连接断了"))
+        assertTrue("得给重试这条路，和「请求失败」那条一致：$msg", msg.contains("可以稍后重试"))
+
+        // detail 缺失时不能拼出「读取响应失败：null」——
+        // `e::class.simpleName` 对匿名类就是 null（和 ConversationEngine 那条同形）
+        val blank = probe.readFailedMessage(null)
+        assertFalse("不能拼出 null：$blank", blank.contains("null"))
+    }
+
     // ================================================================ 确认策略
 
     @Test

@@ -124,4 +124,33 @@ object SandboxProtocol {
                 "重试一次，如果一直这样请反馈给宿主作者。",
             ScriptOutcome.Kind.Unavailable,
         )
+
+    /**
+     * 脚本自己抛的错（语法错、抛异常、没导出 `run`、返回值不能序列化）。
+     *
+     * ## 为什么动作必须写在这句话里
+     *
+     * 分类是 `ScriptError`，而它的 KDoc 写着「可以改参数重试」—— 但**模型看不到
+     * 分类**，它只拿到 `ToolResult.error(message)` 这一个字符串
+     * （见 `ScriptOutcome.Kind` 的 KDoc）。分类说得再准，模型也读不到。
+     *
+     * ## 为什么不能只写「可以改参数重试」
+     *
+     * 脚本崩有两种原因，宿主**分不出来**：
+     *
+     * - 参数不符合脚本的预期（模型改一下就能过）
+     * - 插件自己的 bug（改多少次都一样）
+     *
+     * 所以给的是「试一次 + 不行就换」，而不是替插件打包票说「改参数就好了」（§110）。
+     *
+     * ⚠️ 这句和「缺模块」那条（`SandboxEngine.missingModule`）**动作相反**，
+     * 尽管两者同为 `ScriptError` —— 那边是插件少带了文件，改参数不会让文件出现。
+     */
+    fun scriptErrorOutcome(pluginName: String, detail: String): ScriptOutcome.Failed =
+        ScriptOutcome.Failed(
+            "插件「$pluginName」的脚本出错了：$detail。" +
+                "这可能和你给的参数有关 —— 换个参数再试一次；" +
+                "如果还是同样的错，那是这个插件自己的问题，换一个工具或者告诉用户。",
+            ScriptOutcome.Kind.ScriptError,
+        )
 }

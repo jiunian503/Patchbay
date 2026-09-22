@@ -144,10 +144,10 @@ internal class SandboxEngine(
     private fun failed(request: ScriptRequest, message: String?, cause: Throwable): ScriptOutcome.Failed {
         Log.w(LOG_TAG, "插件 ${request.pluginId} 的脚本出错", cause)
         val detail = message?.takeIf { it.isNotBlank() } ?: cause::class.simpleName.orEmpty()
-        return ScriptOutcome.Failed(
-            "插件「${request.pluginName}」的脚本出错了：$detail",
-            ScriptOutcome.Kind.ScriptError,
-        )
+        // 消息构造放在 `SandboxProtocol` 里（那里是纯函数，JVM 上测得到）——
+        // 和 deathOutcome / timeoutOutcome / sandboxBrokenOutcome 同一个模式。
+        // 这句话里必须带动作：模型看不到 Kind，它只拿到这一个字符串
+        return SandboxProtocol.scriptErrorOutcome(request.pluginName, detail)
     }
 
     /**
