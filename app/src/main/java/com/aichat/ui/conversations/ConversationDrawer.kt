@@ -72,6 +72,14 @@ import com.aichat.ui.common.PbIcons
 fun ConversationDrawer(
     items: List<ConversationSummary>,
     loading: Boolean,
+    /**
+     * 列表**顶到了上限**（还有更早的会话没列出来）。
+     *
+     * 刻意**不给默认值**：这是个「漏了就会静默说假话」的开关，
+     * 给默认值的话新调用点会安安静静地拿到 `false`（§106 同一条理由）。
+     * 文案见 [drawerMoreHint]。
+     */
+    truncated: Boolean,
     currentConversationId: String,
     onOpenConversation: (String) -> Unit,
     onNewConversation: () -> Unit,
@@ -230,6 +238,25 @@ fun ConversationDrawer(
                                 onExport = { onExportConversation(item.id) },
                                 onDelete = { pendingDelete = item },
                             )
+                        }
+
+                        // 到底了、但后面还有：**必须说出来**。
+                        // 不说的话那些会话看起来像是被删了（见 [drawerMoreHint]）。
+                        // 放在列表末尾而不是顶部 —— 用户是「翻到底才发现没了」，
+                        // 那句话得出现在他发现的地方。
+                        if (truncated) {
+                            item {
+                                Text(
+                                    text = drawerMoreHint(items.size),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        start = Space.sm,
+                                        end = Space.sm,
+                                        top = Space.sm,
+                                    ),
+                                )
+                            }
                         }
                     }
             }

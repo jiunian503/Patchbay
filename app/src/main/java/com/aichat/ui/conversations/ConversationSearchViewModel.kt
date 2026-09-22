@@ -106,17 +106,16 @@ class ConversationSearchViewModel(private val search: ConversationSearch) : View
 
         _state.update { it.copy(searching = true) }
         running = viewModelScope.launch {
-            // 多要一条：拿回来超过上限就说明后面还有。
+            // 多要一条：拿回来超过上限就说明后面还有（见 [pageOf]）。
             // 只查上限那么多的话，「刚好 50 条」和「还有更多」分不出来 ——
             // 见 [ConversationSearchUiState.truncated] 的 KDoc。
             val limit = ConversationSearch.DEFAULT_LIMIT
-            val found = search.search(query, limit = limit + 1)
-            val truncated = found.size > limit
+            val page = pageOf(search.search(query, limit = limit + 1), limit)
 
             _state.update {
                 it.copy(
-                    hits = if (truncated) found.take(limit) else found,
-                    truncated = truncated,
+                    hits = page.items,
+                    truncated = page.truncated,
                     searching = false,
                     searched = true,
                     // 连查询词一起记下来：后面标命中位置、跳转都用它，

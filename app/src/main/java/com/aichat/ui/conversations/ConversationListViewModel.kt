@@ -2,6 +2,7 @@ package com.aichat.ui.conversations
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.aichat.chat.ConversationStore
 import com.aichat.chat.ConversationSummary
 import com.aichat.di.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +22,16 @@ import kotlinx.coroutines.launch
 data class ConversationListUiState(
     val items: List<ConversationSummary> = emptyList(),
     val loading: Boolean = true,
+
+    /**
+     * 列表**顶到了上限** —— 也就是还有更早的会话没列出来。
+     *
+     * 侧边栏一次最多列 `ConversationStore.DEFAULT_CONVERSATION_LIMIT` 个，
+     * 而且**没有分页**（再拉开一次还是同一批）。不说出来的话，第 101 个往后的
+     * 会话**静默消失** —— 用户看到的不是「列表有上限」，而是「我的会话没了」。
+     * 这是最像丢数据的一种假话（§111）。文案见 [drawerMoreHint]。
+     */
+    val truncated: Boolean = false,
 )
 
 class ConversationListViewModel(private val container: AppContainer) : ViewModel() {
@@ -51,8 +62,11 @@ class ConversationListViewModel(private val container: AppContainer) : ViewModel
      */
     fun refresh() {
         viewModelScope.launch {
-            val items = container.conversations.listConversations()
-            _state.update { it.copy(items = items, loading = false) }
+            // 多要一条：拿回来超过上限就说明后面还有更早的会话（见 [pageOf]）。
+            // 只查上限那么多的话，「刚好 100 个」和「还有三百个」分不出来。
+            val limit = ConversationStore.DEFAULT_CONVERSATION_LIMIT
+            val page = pageOf(container.conversations.listConversations(limit = limit + 1), limit)
+            _state.update { it.copy(items = page.items, truncated = page.truncated, loading = false) }
         }
     }
 

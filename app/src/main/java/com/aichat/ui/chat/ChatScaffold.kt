@@ -117,6 +117,7 @@ fun ChatScaffold(
             ConversationDrawer(
                 items = listState.items,
                 loading = listState.loading,
+                truncated = listState.truncated,
                 currentConversationId = conversationId,
                 permanent = permanentDrawer,
                 onOpenConversation = { id ->
