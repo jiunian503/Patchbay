@@ -264,4 +264,41 @@ class RunCommandToolTest {
         assertEquals(RunCommandTool.NAME, definition.name)
         assertTrue(definition.description.length > 30)
     }
+
+    /**
+     * 存储边界要写出来，而且要**给出去处**。
+     *
+     * 实测（2026-09-22，MuMu #6 / Android 15 / API 35 / targetSdk 36 / **无存储权限**，
+     * 在 App 自己的终端页里跑）：
+     *
+     * | 命令 | 结果 |
+     * |---|---|
+     * | `cat /sdcard/Download/probe.txt` | ✅ 读到内容 |
+     * | `touch /sdcard/Download/zz.txt` | ✅ 建出来了 |
+     * | `touch /sdcard/zzroot.txt` | ❌ `Operation not permitted` |
+     * | `ls /sdcard/Android/data` | ❌ `Permission denied`（scoped storage 生效） |
+     *
+     * ⇒ **根目录不行、`Download` 行**。不说的话模型会去写根目录、撞一次墙，
+     * 然后要么放弃要么乱试 —— 而它本来只需要换个路径（§111.2「限制必须给动作」）。
+     *
+     * ⚠️ 这一条是照着实测写的，不是照着推断：`ls /sdcard/Android/data` 被拒**证明**
+     * 这台机器上 scoped storage 是生效的，所以「能读 /sdcard/Download」不是
+     * 「模拟器没做过滤」造成的假阳性（§100.1 那类坑）。
+     *
+     * ⚠️ SKILL.md §100.8 原来记的是「写 `/sdcard`：`Operation not permitted`」——
+     * **太宽**，会让读者以为整个 `/sdcard` 都不能写。
+     */
+    @Test
+    fun `描述里写明了往哪写文件`() {
+        val description = tool(shell(ShellOutcome("", 0))).definition.description
+
+        assertTrue(
+            "得指出**能写**的那个路径，只说「不行」等于把问题丢回给模型：$description",
+            description.contains("/sdcard/Download"),
+        )
+        assertTrue(
+            "也得说清根目录写不进去，否则模型会先试那里：$description",
+            description.contains("Operation not permitted"),
+        )
+    }
 }

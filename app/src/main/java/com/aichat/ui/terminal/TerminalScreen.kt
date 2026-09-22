@@ -180,7 +180,8 @@ private fun TerminalIntro(
         )
         Text(
             text = "命令以这个 App 的身份运行，能碰到的东西和 App 一样多。" +
-                "系统里自带的约 190 个命令都能用，不需要下载任何东西。",
+                "系统里自带的约 190 个命令都能用，不需要下载任何东西。" +
+                "要存东西就写进 /sdcard/Download（能建文件）；/sdcard 根目录写不进去。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

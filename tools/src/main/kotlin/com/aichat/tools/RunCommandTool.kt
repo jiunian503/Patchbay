@@ -50,6 +50,9 @@ class RunCommandTool(private val shell: ShellSource) : Tool {
             "系统里自带的命令都能用（ls、cat、grep、find、ps、df、du、ip、sed、awk、tar 等，" +
             "约 190 个），不需要先安装任何东西。" +
             "命令以这个 App 的身份运行，能读 App 有权读的东西，包括共享存储（/sdcard）。" +
+            "**要写文件就写进 `/sdcard/Download`** —— 实测那里能建文件；" +
+            "`/sdcard` 根目录写不进去（`Operation not permitted`），" +
+            "`/sdcard/Android/data` 连列都不行。" +
             "**这台设备上没有的东西，别去试**：装软件（没有 apt / pkg）、联网下载（没有 curl / wget）、" +
             "跑 python / node（没有这些解释器）；" +
             "`dumpsys`、`settings` 这类需要更高权限的命令会被系统拒绝。" +
