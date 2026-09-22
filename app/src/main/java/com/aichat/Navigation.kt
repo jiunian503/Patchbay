@@ -202,11 +202,14 @@ fun MainNavigation(container: AppContainer) {
     // `ChatScreen` / 消息列表 / 气泡好几层。为一个回调穿这么多层，每层都要多一个
     // 参数，而且**漏传一层不报错**，只会让链接又悄悄弹出去。
     //
-    // ⚠️ **作用域只包 `entry<Chat>`**，这是有意的：全项目用 `LocalUriHandler` 的
-    // 还有一处 —— 设置页「检查更新」里的「去下载」—— 它**必须**留在系统浏览器里。
-    // 那个动作的目的是下载 APK 再安装，WebView 既下不了也装不了
-    // （见 `ProviderListScreen.UpdateAvailableDialog` 的 KDoc）。包到
-    // `NavDisplay` 外面就会把它一起改掉。
+    // ⚠️ **作用域只包 `entry<Chat>`**，这是有意的：全项目用 `LocalUriHandler.current`
+    // 的还有**两处**，都必须留在系统浏览器里 —— 设置页「检查更新」里的「去下载」
+    // （那个动作要下载 APK 再安装，WebView 既下不了也装不了，见
+    // `ProviderListScreen.UpdateAvailableDialog` 的 KDoc），以及内置浏览器页顶栏的
+    // 「用浏览器打开」（`BrowserScreen`）。包到 `NavDisplay` 外面会一起改掉。
+    //
+    // 这条分布由 `UriHandlerScopeTest` 守着：多一处就红，提醒回来判断新那一处
+    // 在不在 `entry<Chat>` 作用域里。
     val systemUriHandler = LocalUriHandler.current
     val inAppUriHandler = remember(systemUriHandler) {
         object : UriHandler {
