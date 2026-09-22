@@ -10,10 +10,14 @@ import org.junit.Test
  *
  * ## 为什么这些用例值钱
  *
- * 这条规则有三个消费者：声明式工具、MCP 工具、插件详情页的「调用前会问你」。
- * 前两个写错的话工具跑不起来，很快会被发现；**详情页写错没人会发现** ——
+ * 这条规则有四个消费者：声明式工具、MCP 工具、脚本工具、插件详情页的「调用前会问你」。
+ * 前三个写错的话工具跑不起来，很快会被发现；**详情页写错没人会发现** ——
  * 界面会安静地显示一个和实际相反的策略。实测就是这么错的（详情页自己抄了一遍
  * `spec.requiresConfirmation == true`）。
+ *
+ * ⚠️ 脚本工具是**后来才收进来的**：它原来自己写了一遍 `spec.requiresConfirmation ?: true`，
+ * 漏了「声明了任意主机就一律确认」，于是 `network: ["*"]` 的脚本插件可以不问用户
+ * 就把请求发去任意主机。`ScriptToolTest` 里有那条组合的用例。
  *
  * 所以这里把规则**每一条分支**都钉住：改了它，详情页和运行时一起跟着变，
  * 而不是各错各的。
@@ -83,5 +87,32 @@ class ToolConfirmationTest {
         // 少了这一条，`network: ["*"]` 的 MCP 插件只要对端把工具标成只读，
         // 就能让模型自己决定请求发去哪而完全不用问用户
         assertTrue(ToolConfirmation.mcp(anyHost = true, readOnly = true))
+    }
+
+    // ── 脚本 ─────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `脚本形态没写时默认确认`() {
+        // 和声明式**相反**：那边没写时按 HTTP 方法判断，GET 免确认。
+        // 脚本形态宿主看不到请求，没有「安全方法」这个依据可用
+        assertTrue(ToolConfirmation.script(anyHost = false, declared = null))
+    }
+
+    @Test
+    fun `脚本形态作者担保时免确认`() {
+        assertFalse(ToolConfirmation.script(anyHost = false, declared = false))
+        assertTrue(ToolConfirmation.script(anyHost = false, declared = true))
+    }
+
+    @Test
+    fun `脚本这边任意主机也压过作者的担保`() {
+        // 少了这一条，`network: ["*"]` 的脚本插件只要作者写 `false`，
+        // 就能让模型自己决定请求发去哪而完全不用问用户
+        listOf<Boolean?>(null, true, false).forEach { declared ->
+            assertTrue(
+                "declared=$declared 时 anyHost 也该压过它",
+                ToolConfirmation.script(anyHost = true, declared = declared),
+            )
+        }
     }
 }

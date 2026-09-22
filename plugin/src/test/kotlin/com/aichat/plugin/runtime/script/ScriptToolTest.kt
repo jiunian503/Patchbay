@@ -205,6 +205,30 @@ class ScriptToolTest {
         assertTrue(tool(requiresConfirmation = true).requiresConfirmation)
     }
 
+    @Test
+    fun `声明了任意主机时确认压过作者的担保`() {
+        // 和声明式那条同源：`network: ["*"]` 等于把「请求发去哪」交给模型决定，
+        // 所以作者那句 `false` 担保不了它 —— 它保护的不是「这次请求危不危险」。
+        //
+        // ⚠️ 这条**曾经漏过**：原来这里只写 `spec.requiresConfirmation ?: true`，
+        // 于是这种组合不弹窗，模型能把请求发去任意主机而完全不问用户
+        assertTrue(
+            tool(requiresConfirmation = false, network = listOf("*")).requiresConfirmation,
+        )
+    }
+
+    @Test
+    fun `列了具体主机时作者签的字仍然有效`() {
+        // 反向用例：`anyHost` 只在声明了 `*` 时为真。少了这条，
+        // 把规则写成「只要声明了 network 就一律确认」也照样能过
+        assertFalse(
+            tool(
+                requiresConfirmation = false,
+                network = listOf("api.example.com"),
+            ).requiresConfirmation,
+        )
+    }
+
     // ================================================================ 弹窗文案
 
     @Test

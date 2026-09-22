@@ -7,13 +7,19 @@ import com.aichat.plugin.manifest.HttpMethod
  *
  * ## 为什么必须只有一处
  *
- * 这条规则有三个地方要用：
+ * 这条规则有**四个**地方要用：
  *
  * 1. [DeclarativeTool.requiresConfirmation] —— 真正拦下调用
  * 2. `McpTool.requiresConfirmation` —— 同上
- * 3. 插件详情页那句「调用前会问你 / 调用前不会打扰你」—— 用户照着它决定放不放行
+ * 3. `ScriptTool.requiresConfirmation` —— 同上
+ * 4. 插件详情页那句「调用前会问你 / 调用前不会打扰你」—— 用户照着它决定放不放行
  *
- * 前两个写错的话工具根本跑不起来，很快就会有人发现。**第三个写错了没人会发现**：
+ * ⚠️ 第 3 项是**后来补上的**：脚本工具原来自己写了一遍 `spec.requiresConfirmation ?: true`，
+ * 少了「声明了任意主机就一律确认」那一条 —— 于是 `network: ["*"]` 的脚本插件只要作者写
+ * `false`，模型就能把请求发去任意主机而完全不问用户。这和第 20 行记的那次事故是同一个
+ * 病根（把规则抄了一遍），只是漏掉的分支不同。
+ *
+ * 前三个写错的话工具根本跑不起来，很快就会有人发现。**第四个写错了没人会发现**：
  * 界面会安静地显示一个和实际相反的策略，而它恰恰是用户唯一能看到的地方 ——
  * 那句文案的注释里还写着「显示**实际生效**的策略，不是清单里写的那个值」。
  *
@@ -57,4 +63,15 @@ object ToolConfirmation {
      * 那正是 `network: ["*"]` 的意思。
      */
     fun mcp(anyHost: Boolean, readOnly: Boolean): Boolean = anyHost || !readOnly
+
+    /**
+     * 脚本工具。**没有 HTTP 方法可依** —— 宿主看得到脚本「能碰到什么」
+     * （白名单、工作区），看不到它「会做什么」，往一个白名单主机 POST 是完全可能的。
+     * 所以 `null` 在这里落到 `true`：**看不到就确认**。
+     *
+     * 作者仍然可以写 `false` 明确担保（三态设计里「签字」那个位置）——
+     * 但 `anyHost` 压过它，理由和 [declarative] 的第 3 条一样：
+     * 声明了任意主机，等于把「请求发去哪」交给模型决定。
+     */
+    fun script(anyHost: Boolean, declared: Boolean?): Boolean = anyHost || (declared ?: true)
 }

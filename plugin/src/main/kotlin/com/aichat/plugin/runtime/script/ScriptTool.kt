@@ -5,6 +5,8 @@ import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.manifest.ToolSpec
+import com.aichat.plugin.permission.NetworkGuard
+import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.ToolResultText
 import kotlinx.serialization.json.JsonObject
 
@@ -28,6 +30,14 @@ import kotlinx.serialization.json.JsonObject
  * 作者可以写 `false` 明确担保 —— 那正是三态设计里「签字」那个位置。
  * 这个方向也是项目一贯的取向：漏写的后果应该是「多弹一次窗」，
  * 而不是「本该问的没问」。
+ *
+ * ⚠️ **「声明了任意主机就一律确认」那条同样适用**，而且作者那句 `false` 压不过它 ——
+ * 它保护的是「地址由模型说了算」，不是「这次请求危不危险」（理由见
+ * [ToolConfirmation.declarative] 的第 3 条）。
+ *
+ * 这一条**曾经漏过**：原来这里只写了 `spec.requiresConfirmation ?: true`，于是
+ * `network: ["*"]` 的脚本插件只要作者写 `false`，模型就能把请求发去任意主机而完全
+ * 不问用户。现在整条规则都走 [ToolConfirmation.script]。
  *
  * ## 一个插件的多个工具共用一个 `run`
  *
@@ -88,8 +98,12 @@ class ScriptTool(
             }
         }
 
-    /** 见类 KDoc：脚本形态没有「安全方法」可依，所以默认确认。 */
-    override val requiresConfirmation: Boolean get() = spec.requiresConfirmation ?: true
+    /** 见类 KDoc：规则整体在 [ToolConfirmation.script]（包括「任意主机一律确认」）。 */
+    override val requiresConfirmation: Boolean
+        get() = ToolConfirmation.script(
+            anyHost = NetworkGuard.declaresAnyHost(template.network),
+            declared = spec.requiresConfirmation,
+        )
 
     override suspend fun execute(arguments: JsonObject): ToolResult =
         when (val outcome = runtime.execute(template.copy(inputJson = arguments.toString()))) {

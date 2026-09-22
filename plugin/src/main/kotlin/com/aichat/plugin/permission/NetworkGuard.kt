@@ -32,7 +32,7 @@ import okhttp3.Response
  */
 class NetworkGuard(declared: List<String>) {
 
-    private val wildcard: Boolean = declared.any { it.trim() == "*" }
+    private val wildcard: Boolean = declaresAnyHost(declared)
 
     /** 归一化成小写后做全等匹配。主机名大小写不敏感。 */
     private val hosts: Set<String> = declared
@@ -161,9 +161,19 @@ class NetworkGuard(declared: List<String>) {
     private fun manualRedirectClient(client: OkHttpClient): OkHttpClient =
         client.newBuilder().followRedirects(false).followSslRedirects(false).build()
 
-    private companion object {
-        const val MAX_REDIRECTS = 5
-        val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+    companion object {
+        /**
+         * 「声明里有 `*`」这个判据**只有这一处**。
+         *
+         * [allowsAnyHost] 用它；`ScriptTool` 也用它 —— 后者拿不到 guard 实例
+         * （guard 是沙箱那边建的），手里只有 `ScriptRequest.network`，
+         * 而两边对「任意主机」的判断必须一致：不一致的后果是确认弹窗在一处生效、
+         * 另一处静默失效。
+         */
+        fun declaresAnyHost(declared: List<String>): Boolean = declared.any { it.trim() == "*" }
+
+        private const val MAX_REDIRECTS = 5
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
     }
 }
 
