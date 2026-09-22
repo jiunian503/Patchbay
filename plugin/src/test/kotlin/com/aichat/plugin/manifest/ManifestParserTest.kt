@@ -145,7 +145,11 @@ class ManifestParserTest {
     }
 
     @Test
-    fun `标了 dangerous 却没写确认开关时报错`() {
+    fun `标了 dangerous、GET 又不写确认时报错`() {
+        // 报错的原因**不是**「没写确认开关」—— 声明式没写时按 HTTP 方法兜底，
+        // 而 GET 是安全方法 ⇒ 这个工具真的不会被确认，所以必须拦下。
+        // 「没写」本身在别的格子里是安全的（POST、以及脚本形态），
+        // 完整的真值表在 `DangerousToolCheckTest`
         val json = Manifests.declarative(
             tools = listOf("t"),
             toolBody = { Manifests.toolSpec(it, dangerous = "true") },

@@ -437,6 +437,35 @@ object ManifestParser {
     }
 
     /**
+     * 这个工具**运行时**会不会弹窗确认？
+     *
+     * 和 `com.aichat.plugin.runtime.ToolConfirmation` 是**同一个问题的两处实现** ——
+     * `manifest` 不能依赖 `runtime`（那边反向依赖这边），所以只能写第二遍。
+     *
+     * ⚠️ **两处必须同进同退，而算错的方向是不对称的**：这里算错 = **报假警**
+     * （拦住一个其实安全的清单，作者只能瞎写 `true` 绕过）；运行时算错 = **不弹窗**。
+     * `ManifestParserTest` 里有一条对照用例把真值表逐个和 `ToolConfirmation` 比 ——
+     * 谁改了规则它先红，所以这里才敢写第二遍。
+     *
+     * 三态的含义（和 [ToolSpec.requiresConfirmation] 的 KDoc 一致）：
+     *
+     * - 写了 `true` / `false` ⇒ 作者签字，直接生效（但**任意主机压过 `false`**）
+     * - 没写 ⇒ 按运行形态兜底：脚本形态**默认确认**（宿主看不到请求，没有
+     *   「安全方法」这个依据），其余按 RFC 9110 的安全方法（只有 GET 免确认）
+     */
+    private fun confirmsWhenRun(m: PluginManifest, tool: ToolSpec): Boolean {
+        // 声明了任意主机 = 把「请求发去哪」交给模型 ⇒ 一律确认，作者那句 `false` 压不过
+        if (networkDeclaresAnyHost(m.permissions.network)) return true
+        return tool.requiresConfirmation ?: when (m.runtime) {
+            PluginRuntimeKind.Script -> true
+            PluginRuntimeKind.Declarative,
+            PluginRuntimeKind.Native,
+            PluginRuntimeKind.Mcp,
+            -> (tool.request?.method ?: HttpMethod.Get) != HttpMethod.Get
+        }
+    }
+
+    /**
      * 工具级的主机名覆盖。
      *
      * ## 为什么要在安装时报，而不是等调用时
@@ -839,23 +868,36 @@ object ManifestParser {
                 )
             }
 
-            // dangerous 是「高危」的声明，而 requiresConfirmation 是唯一实际生效的保护。
-            // 两者矛盾时按更安全的一边解释：报错，逼作者二选一。
+            // dangerous 是「高危」的声明，而弹窗确认是当前唯一实际生效的保护。
             //
-            // 判据是 `!= true` 而不是 `== false`：没写（null）时宿主会按 HTTP 方法兜底
-            // （非 GET 一律确认），所以「没写」是安全的，不该报错
-            if (tool.dangerous && tool.requiresConfirmation != true) {
+            // ⚠️ 判据**不是**「作者写没写 true」，而是**运行时会不弹窗** —— 因为
+            // 三态里「没写」的后果取决于运行形态：脚本形态没写时默认确认
+            // （`ToolConfirmation.script`），声明式没写时按 HTTP 方法（非 GET 才确认）。
+            // 原来写的是 `requiresConfirmation != true`，等于假设「没写就不安全」——
+            // 那只在**声明式 + GET** 上成立，于是脚本作者老老实实写了
+            // `dangerous: true` 会被一条 Error 拦住，而它的理由是假的。
+            //
+            // ⚠️ MCP 跳过：`McpTool` 的确认策略只看**对端**的 `readOnly`，
+            // 清单里这个字段对它不起作用（见 `ToolConfirmation.mcp`）——
+            // 报错要求作者「写上 true」是一句他照做也没用的建议。
+            if (m.runtime != PluginRuntimeKind.Mcp && tool.dangerous && !confirmsWhenRun(m, tool)) {
                 out += ManifestProblem(
                     "$at",
-                    "标了 dangerous 却没有把 requiresConfirmation 设为 true。dangerous 只是给自动模式看的提示，" +
-                        "当前唯一实际生效的保护就是弹窗确认 —— 请显式写上 true。",
+                    "标了 dangerous，但按这个工具的运行形态，调用前**不会**问你。" +
+                        "dangerous 只是给自动模式看的提示，当前唯一实际生效的保护就是弹窗确认 —— " +
+                        "请让这个工具会弹窗（把 requiresConfirmation 写成 true，或改用非 GET 方法）。",
                 )
             }
 
             // 作者明确关掉确认，而这个工具会发非 GET 请求。
             // 不报错（有些接口确实用 POST 做只读查询），但要说出来 ——
-            // 用户在一次数据被改掉之后，唯一能回看的就是这条记录
+            // 用户在一次数据被改掉之后，唯一能回看的就是这条记录。
+            //
+            // ⚠️ `network: ["*"]` 时那句 `false` **不生效**：任意主机一律确认
+            // （见 `ToolConfirmation` 的第 3 条），所以那时候说「作者明确关掉了
+            // 确认弹窗」是反话 —— 弹窗其实还在
             if (tool.requiresConfirmation == false &&
+                !networkDeclaresAnyHost(m.permissions.network) &&
                 tool.request?.method?.let { it != HttpMethod.Get } == true
             ) {
                 out += ManifestProblem(
