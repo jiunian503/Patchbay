@@ -248,6 +248,27 @@ class ScriptToolTest {
     }
 
     @Test
+    fun `声明了任意主机时要说「任意主机」而不是把星号丢给用户`() {
+        val summary = tool(network = listOf("*")).userSummary
+
+        // 同一个声明（`network: ["*"]`）在声明式和 MCP 两种形态里说的都是
+        // 「任意主机」，脚本这边原来直接把清单里的 `*` 拼进句子，
+        // 用户看到的是一颗孤零零的星号
+        assertTrue(summary, summary.contains("任意主机"))
+        assertFalse("别把 `*` 原样露给用户", summary.contains("主机 *"))
+        assertTrue("声明了任意主机就一定要确认，这句话也要说", summary.contains("确认"))
+    }
+
+    @Test
+    fun `列了具体主机时不说「任意主机」`() {
+        // 反向：没有 `*` 时照旧把主机逐个列出来
+        val summary = tool(network = listOf("api.example.com")).userSummary
+
+        assertFalse(summary, summary.contains("任意主机"))
+        assertTrue(summary, summary.contains("api.example.com"))
+    }
+
+    @Test
     fun `没有任何权限时说明它只能处理给它的数据`() {
         val summary = tool(network = emptyList(), filesystem = FilesystemScope.None).userSummary
 

@@ -74,4 +74,19 @@ object ToolConfirmation {
      * 声明了任意主机，等于把「请求发去哪」交给模型决定。
      */
     fun script(anyHost: Boolean, declared: Boolean?): Boolean = anyHost || (declared ?: true)
+
+    /**
+     * 弹框里那句「为什么每次都要问你」—— 声明了任意主机。
+     *
+     * 这条理由**和运行形态无关**：声明式、MCP 说的都是同一件事
+     * （地址由模型说了算，作者那句 `false` 担保不了它），所以它只能有一份。
+     *
+     * ⚠️ 它原来在 [DeclarativeTool] 和 `McpTool` 里**各写了一遍**（逐字相同），
+     * 中间没有任何东西把两处拴在一起 —— 改一处漏一处不会有东西变红，
+     * 而它是弹框里唯一解释「为什么拦你」的字。
+     *
+     * 现在两处都引用这里，漂移在语法上不可能发生。`ToolConfirmationTest`
+     * 里那条用例钉的是**内容本身**：谁想改措辞，必须同时看到它。
+     */
+    const val ANY_HOST_REASON: String = "这个插件声明可以访问任意主机，所以每次都要你确认"
 }

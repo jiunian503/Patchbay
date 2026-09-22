@@ -119,7 +119,7 @@ class DeclarativeTool(
             append("插件「$pluginName」将向 $targetHost 发起一次 ${request.method.wire} 请求")
             when {
                 guard.allowsAnyHost ->
-                    append("。这个插件声明可以访问任意主机，所以每次都要你确认")
+                    append("。").append(ToolConfirmation.ANY_HOST_REASON)
 
                 request.method != HttpMethod.Get ->
                     append("。非 GET 请求可能改动服务端数据，所以每次都要你确认")

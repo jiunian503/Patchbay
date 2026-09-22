@@ -1,6 +1,7 @@
 package com.aichat.plugin.runtime
 
 import com.aichat.plugin.manifest.HttpMethod
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -114,5 +115,21 @@ class ToolConfirmationTest {
                 ToolConfirmation.script(anyHost = true, declared = declared),
             )
         }
+    }
+
+    // ── 给用户看的那句话 ─────────────────────────────────────────────────────
+
+    @Test
+    fun `「任意主机」那句理由只有一份`() {
+        // 这句原来在 DeclarativeTool 和 McpTool 里**各写了一遍**（逐字相同），
+        // 中间没有任何东西把两处拴在一起 —— 改一处漏一处不会有东西变红，
+        // 而它是弹框里唯一解释「为什么拦你」的字。
+        //
+        // 现在两处都引用这个常量，漂移在语法上不可能；所以这里钉的是**内容**：
+        // 谁想改措辞，必须同时看到这条测试，而不是只改一个渲染点。
+        assertEquals(
+            "这个插件声明可以访问任意主机，所以每次都要你确认",
+            ToolConfirmation.ANY_HOST_REASON,
+        )
     }
 }

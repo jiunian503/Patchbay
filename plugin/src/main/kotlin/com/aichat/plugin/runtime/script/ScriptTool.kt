@@ -78,7 +78,12 @@ class ScriptTool(
 
             val reach = buildList {
                 if (template.network.isNotEmpty()) {
-                    add("访问主机 " + template.network.joinToString("、"))
+                    // 声明了 `*` 时说「任意主机」，而不是把清单里的星号原样拼进句子 ——
+                    // 同一个声明在另外两种形态里说的就是「任意主机」
+                    add(
+                        if (networkDeclaresAnyHost(template.network)) "访问任意主机"
+                        else "访问主机 " + template.network.joinToString("、"),
+                    )
                 }
                 when (template.filesystem) {
                     FilesystemScope.None -> Unit

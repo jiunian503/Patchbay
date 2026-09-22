@@ -521,7 +521,7 @@ class McpTool(
             append("插件「$pluginName」将通过 MCP 服务 ${client.host} 调用「${descriptor.name}」")
             when {
                 guard.allowsAnyHost ->
-                    append("。这个插件声明可以访问任意主机，所以每次都要你确认")
+                    append("。").append(ToolConfirmation.ANY_HOST_REASON)
 
                 descriptor.readOnly ->
                     append("。对端声明这个工具只读")
