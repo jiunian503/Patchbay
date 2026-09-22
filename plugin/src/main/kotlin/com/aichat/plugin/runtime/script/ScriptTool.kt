@@ -5,6 +5,7 @@ import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.manifest.ToolSpec
+import com.aichat.plugin.runtime.ToolResultText
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -92,7 +93,7 @@ class ScriptTool(
 
     override suspend fun execute(arguments: JsonObject): ToolResult =
         when (val outcome = runtime.execute(template.copy(inputJson = arguments.toString()))) {
-            is ScriptOutcome.Ok -> ToolResult.ok(outcome.json)
+            is ScriptOutcome.Ok -> ToolResult.ok(ToolResultText.clip(outcome.json))
 
             // 失败原因由沙箱写成一句给人看的话。这里**不加工** ——
             // 「超时别重试」和「脚本报错可以改参数重试」的区别必须原样传下去，

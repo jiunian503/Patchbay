@@ -542,6 +542,23 @@ class McpClientTest {
     }
 
     @Test
+    fun `工具结果超过字符上限时截断并说明`() {
+        // 工具结果会原样进上下文，而且**每一轮都重发**，直到它滑出窗口 ——
+        // 不截断的话，一次超长返回会把后面几十轮的每一次请求全撑大
+        val long = "x".repeat(25_000)
+        server.enqueue(json(toolsResult(searchTool)))
+        server.enqueue(json(callResult(textBlock(long))))
+
+        val client = mcp()
+        val tool = client.listTools().single()
+        val text = client.callTool(tool, JsonObject(emptyMap())).text
+
+        assertTrue("要说明白截断了，否则模型会拿前半截当全部", text.contains("已截断"))
+        assertTrue("要说清原文多长", text.contains("25000"))
+        assertTrue("正文不该把上限整个丢掉：${text.length}", text.length in 20_000..21_000)
+    }
+
+    @Test
     fun `只有非文本内容时要说出来`() {
         // 沉默会让模型以为「工具什么都没返回」，然后据此下结论
         server.enqueue(json(toolsResult(searchTool)))

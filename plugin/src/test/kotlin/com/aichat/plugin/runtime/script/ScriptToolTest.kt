@@ -136,6 +136,22 @@ class ScriptToolTest {
     }
 
     @Test
+    fun `脚本返回值超过字符上限时截断并说明`() = runBlocking {
+        // 脚本能返回任意大的 JSON，而它会被原样放进上下文、每一轮都重发。
+        // 沙箱的 `memoryLimitMb` 管的是脚本自己的堆，**不是**「给模型多少字」——
+        // 两者量的是不同的东西，所以这道闸不能靠它代劳
+        // 原文就是这段 JSON 文本，长度按它自己算 —— 别手写一个数字，
+        // 不然「断言里的数字」和「实现里的长度」会各说各的
+        val payload = "\"" + "x".repeat(25_000) + "\""
+        val runtime = FakeScriptRuntime(outcome = ScriptOutcome.Ok(payload))
+        val result = tool(runtime).execute(buildJsonObject {})
+
+        assertFalse(result.isError)
+        assertTrue("要说明白截断了，否则模型会拿前半截当全部", result.content.contains("已截断"))
+        assertTrue("要说清原文多长", result.content.contains("${payload.length} 字"))
+    }
+
+    @Test
     fun `失败信息原样传给模型不加工`() = runBlocking {
         val runtime = FakeScriptRuntime(
             outcome = ScriptOutcome.Failed(

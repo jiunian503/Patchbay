@@ -6,6 +6,7 @@ import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
+import com.aichat.plugin.runtime.ToolResultText
 import java.io.IOException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -443,24 +444,14 @@ class McpClient(
             else -> "（工具执行成功，但没有返回任何内容。）"
         }
 
-        return McpCallResult(truncate(body), isError = wire.isError)
+        return McpCallResult(ToolResultText.clip(body), isError = wire.isError)
     }
 
-    private fun truncate(text: String): String =
-        if (text.length <= MAX_CONTENT_CHARS) {
-            text
-        } else {
-            text.take(MAX_CONTENT_CHARS) +
-                "\n\n（内容过长已截断：原文 ${text.length} 字，只保留前 $MAX_CONTENT_CHARS 字。" +
-                "需要完整内容请让用户换一个更精确的查询。）"
-        }
+    // 「结果太长就截断」搬到了 `ToolResultText`（声明式 / MCP / 脚本共用一份）。
 
     private companion object {
         /** 和 `ManifestParser` 对清单里工具说明的上限一致，理由相同。 */
         const val MAX_DESCRIPTION = 2_000
-
-        /** 和 `DeclarativeTool` / `FetchUrlTool` 一致。 */
-        const val MAX_CONTENT_CHARS = 20_000
     }
 }
 

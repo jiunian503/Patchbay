@@ -441,9 +441,9 @@ class DeclarativeTool(
             )
         }
 
-        val extracted = extract(body) ?: return ToolResult.ok(truncate(body))
+        val extracted = extract(body) ?: return ToolResult.ok(ToolResultText.clip(body))
 
-        return ToolResult.ok(truncate(extracted))
+        return ToolResult.ok(ToolResultText.clip(extracted))
     }
 
     /**
@@ -484,21 +484,14 @@ class DeclarativeTool(
         is JsonPrimitive -> element.content
     }
 
-    private fun truncate(text: String): String =
-        if (text.length <= MAX_CHARS) {
-            text
-        } else {
-            text.take(MAX_CHARS) +
-                "\n\n（内容过长已截断：原文 ${text.length} 字，只保留前 $MAX_CHARS 字。" +
-                "需要完整内容请让用户换个更精确的查询。）"
-        }
+    // 「结果太长就截断」搬到了 `ToolResultText` —— 它有三个消费者
+    // （声明式 / MCP / 脚本），同一个位置只该有一处实现（§111.9）。
 
     private companion object {
         val json = Json { prettyPrint = false }
 
         /** 上限和 `FetchUrlTool` 保持一致，理由相同：不加限制的抓取会撑爆上下文。 */
         const val MAX_BYTES = 256 * 1024
-        const val MAX_CHARS = 20_000
 
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         val EMPTY_JSON_BODY = "{}".toRequestBody(JSON_MEDIA_TYPE)
