@@ -466,7 +466,7 @@ python tools/archive_release.py --find-map-id <堆栈里的那个 64 位 hash>
 | # | 判据 | 怎么核 |
 |---|---|---|
 | 1 | 线上附件与本地归档**逐字节相同** | 比 sha256（**不是比大小**） |
-| 2 | APK 的 DEX / mapping / `map-id.txt` **三方一致** | 见下面那段 Python |
+| 2 | APK 的 DEX / mapping / `map-id.txt` **三方一致** | 跑 `python tools/check_release_assets.py` |
 | 3 | 归档记的源码 `HEAD` 真实存在，且在 master 历史上 | `git merge-base --is-ancestor` |
 | 4 | 版本号与目录名相符 | `aapt2 dump badging` 读 `versionCode` / `versionName` |
 
@@ -490,32 +490,45 @@ cd dist && sha256sum patchbay-*/patchbay-*.apk patchbay-*/mapping.txt
 `map-id.txt` 更是从来没被反向核过：
 
 ```bash
-python - <<'PY'
-import re, zipfile
-MAP_ID_IN_DEX = re.compile(rb'r8-map-id-([0-9a-f]{64})')
-PG = re.compile(r'^#\s*pg_map_id:\s*([0-9a-f]{64})\s*$', re.MULTILINE)
-for v in ('1.0', '1.1', '1.2'):
-    d = 'dist/patchbay-' + v
-    with zipfile.ZipFile(f'{d}/patchbay-{v}.apk') as z:
-        blob = b''.join(z.read(n) for n in z.namelist() if n.endswith('.dex'))
-    ids = sorted({m.decode() for m in MAP_ID_IN_DEX.findall(blob)})
-    m = PG.search(open(f'{d}/mapping.txt', encoding='utf-8').read(4096))
-    pgid = m.group(1) if m else None
-    txt = open(f'{d}/map-id.txt', encoding='utf-8').read().strip()
-    ok = len(ids) == 1 and pgid == ids[0] == txt
-    print(v, 'ALL THREE MATCH' if ok else f'MISMATCH ids={ids} pg={pgid} txt={txt}')
-PY
+python tools/check_release_assets.py
 ```
 
-**2026-09-21 的实测结果（三版全过，作为基线）**：
+它扫 `dist/patchbay-*` 下**每一个**版本，逐版报「三方一致 / 哪里对不上」，顺带把
+APK 与 mapping 的 sha256 打出来（判据 1 的本地那一半）。退出码非 0 就是有版本
+对不上。它自己的判据测试：
+
+```bash
+python tools/tests/test_check_release_assets.py     # 13 条，零依赖
+```
+
+> ⚠️ **为什么落成一个脚本，而不是留一段内联 heredoc。** 原来这里是
+> `python - <<'PY'` 内联的一段，两个问题都是实测踩出来的：
+>
+> 1. **Git Bash 会把「`:` 紧跟 `\`」当成盘符路径**（`C:\`），把那个反斜杠换成 `/`。
+>    于是内联那段里的正则 `pg_map_id:\s*(...)` 到 Python 手上变成
+>    `pg_map_id:/s*(...)` —— **匹配不到**，**每一版都报 MISMATCH**。
+>    而「MISMATCH」这句话把人引向「你的归档坏了」，真因却在命令行转义上。
+>    实测 `python -c "print(repr(r'x:\s'))"` 打出 `'x:/s'`；`\s` 前面是字母时
+>    不会被转，所以只有「冒号紧跟反斜杠」的位置中招，更难看出来。
+> 2. **它写死了 `for v in ('1.0', '1.1', '1.2')`** —— 发到 1.4 之后 1.3 / 1.4
+>    **再也没被核过**，而且没有任何东西会提醒你（§91⑧ 同族：写死的版本号会过期）。
+>
+> 落成文件之后，正则写成什么就是什么，扫描范围跟着 `dist/` 走。
+
+**2026-09-22 的实测结果（五版全过，作为基线）**：
 
 | 版本 | APK sha256 | mapping sha256 | map-id |
 |---|---|---|---|
 | 1.0 | `adfdabfa…` | `8353de4a…` | `3698dbbf…` |
 | 1.1 | `e78dfab9…` | `97382845…` | `92bac30a…` |
 | 1.2 | `634af1c3…` | `fb116d5a…` | `f467dfa3…` |
+| 1.3 | `50d004c0…` | `9656c478…` | `79711ddd…` |
+| 1.4 | `a4d0a9eb…` | `bef11dfd…` | `6bdca6b9…` |
 
-四条判据 3/3 全过，`--find-map-id` 反查闭环成立（每个 id 都指向自己那一版）。
+四条判据 5/5 全过，`--find-map-id` 反查闭环成立（每个 id 都指向自己那一版）。
+
+> ⚠️ **这张表会随发版变少东西 —— 以脚本输出为准。** 它只是「某个时点全过」的记录；
+> 脚本每次都会重算当前 `dist/` 下的**全部**版本。发完新版顺手跑一次。
 
 **顺带核一件容易忽略的**：本地 `NOTES.md` 与线上 Release 正文是否一致 ——
 **线上会比本地多一个末尾空行**（GitHub 自动补的），其余应逐字相同：
@@ -524,6 +537,7 @@ PY
 GH_TOKEN="$TOKEN" "$GH" release view v1.2 --repo jiunian503/Patchbay --json body --jq '.body' \
   > /tmp/body.md && diff <(sed 's/\r$//' dist/patchbay-1.2/NOTES.md) <(sed 's/\r$//' /tmp/body.md)
 ```
+> 把两处 `1.2` 换成你要核的那版。
 
 > ⚠️ `dist/patchbay-1.0/NOTES.md` 是 **2026-09-21 从线上回填的** —— `NOTES.md` 这个
 > 约定是 v1.1 才有的，v1.0 发布时说明直接写在 `gh` 命令里。回填内容与线上逐字相同，
