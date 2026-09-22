@@ -68,8 +68,8 @@ class AndroidDeviceInfo(private val context: Context) : DeviceInfoSource {
      * 读一次包信息。`runCatching` 是因为 `getPackageInfo` 在某些打包方式下会抛
      * `NameNotFoundException` —— 拿不到就是拿不到，不编一个值出来。
      *
-     * **整个仓库只有这里读 `versionName`**（见 `PatchbayApp.installCrashLogging`
-     * 的注释）：再写一份的话，迟早会和这一份给出不一样的版本号，而两份都"看着对"。
+     * **整个仓库只有这里读 `versionName`**（由 `DeviceInfoOriginTest` 扫源码守着）：
+     * 再写一份的话，迟早会和这一份给出不一样的版本号，而两份都「看着对」。
      */
     private fun packageInfo() = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0)

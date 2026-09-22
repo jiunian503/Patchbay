@@ -561,8 +561,8 @@ class AppContainer(context: Context) : ChatDeps {
      * 当前安装的版本名，形如 `1.1`（**不带** `versionCode`）。
      *
      * 走 [AndroidDeviceInfo] 而不是自己读一遍 `PackageManager`：它已经是这个
-     * 仓库里唯一读 `versionName` 的地方（见 `PatchbayApp.installCrashLogging`）。
-     * 再写一份的话，两份迟早会给出不一样的版本号，而两份都「看着对」。
+     * 仓库里唯一读 `versionName` 的地方（`DeviceInfoOriginTest` 扫源码守着这一条，
+     * 不是靠这句话）。再写一份的话，两份迟早会给出不一样的版本号，而两份都「看着对」。
      *
      * 读不到时是 null —— 调用方据此说「读不到当前版本」，而不是编一个值去比。
      */

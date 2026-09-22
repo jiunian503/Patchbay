@@ -122,8 +122,8 @@ class PatchbayApp : Application() {
      * 那些读到的值全都白读了）。
      *
      * 复用 [AndroidDeviceInfo] 而不是另写一份「读版本号」的代码：它已经是
-     * 这个仓库里唯一一处读 `versionName` / `Build.MODEL` 的地方，
-     * 再写一份迟早会和它给出不一样的机型名。
+     * 这个仓库里唯一一处读 `versionName` / `Build.MODEL` 的地方（由
+     * `DeviceInfoOriginTest` 扫源码守着），再写一份迟早会和它给出不一样的机型名。
      */
     private fun installCrashLogging() {
         val info = AndroidDeviceInfo(this)

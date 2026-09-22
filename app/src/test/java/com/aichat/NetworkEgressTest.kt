@@ -50,19 +50,12 @@ import org.junit.Test
  *
  * ## 注释不算，代码算
  *
- * 扫描**按行**做，整行注释跳过（`//` 开头的、`*` 开头的续行、以及块注释的起始行）。
- * 这条规则是被自己逼出来的：本文件要守的那几处代码，恰恰**必须在注释里提到那个
- * 标记**（比如「没有 WebView 时 `WebView(context)` 会抛」）。不跳注释的话，
- * 守卫会对着解释它自己的注释报警 —— 那是最没用的那种红，而且会逼着人把注释
- * 写得含糊。
- *
- * 代价：标记写在**行尾**注释里、或者换个构造写法，就漏了。前者很罕见；
- * 后者会以「和 [DECLARED] 对不上」红掉，红得明白。
+ * 扫描**按行**做，整行注释跳过 —— 规则和代价写在 [SourceScan.scan] 的 KDoc 里。
+ * 那份实现是本文件和 `DeviceInfoOriginTest` 共用的一处，不是各写一遍。
  */
 class NetworkEgressTest {
 
-    private val sourceRoot: File = dirFromProperty("patchbay.sourceRoot")
-    private val readme: File = fileFromProperty("patchbay.readmeFile")
+    private val readme: File = SourceScan.fileFromProperty("patchbay.readmeFile")
 
     // ---- 两个扫描标记 ------------------------------------------------
 
@@ -171,7 +164,7 @@ class NetworkEgressTest {
     fun `声明的出网种类和代码里的实现处完全一致`() {
         for (marker in listOf(OKHTTP, WEBVIEW)) {
             val declared = expectedSites(marker)
-            val actual = scan(marker)
+            val actual = SourceScan.scan(marker)
 
             assertTrue(
                 "扫 $marker 一个都没匹配到 —— 写法变了（或者模块列表解析失败），" +
@@ -235,69 +228,12 @@ class NetworkEgressTest {
                     "要么改回 OkHttp / WebView，要么把它当成新的一种出网：\n" +
                     "在 [DECLARED] 里加一条，并去改 README 那句话。",
                 emptyMap<String, Int>(),
-                scan(marker),
+                SourceScan.scan(marker),
             )
         }
     }
 
-    // ---- 扫描 --------------------------------------------------------
-
-    /**
-     * 生产代码里 [marker] 的每一处出现：相对仓库根的路径 → 出现次数。
-     *
-     * 只看各模块的 `src/main` —— 测试代码里造客户端不算出网。
-     *
-     * **整行注释不算**（`//` 开头的、`*` 开头的续行、以及块注释的起始行）。这条规则
-     * 是被自己逼出来的：本文件要守的那几处代码，恰恰**必须在注释里提到那个标记**
-     * （比如「没有 WebView 时 `WebView(context)` 会抛」）。不跳注释的话，守卫会对着
-     * 解释它自己的注释报警 —— 那是最没用的那种红，而且会逼着人把注释写得含糊。
-     *
-     * 代价和 `NavigationGraphTest` 那边一样：标记写在**行尾**注释里、或者换个
-     * 构造写法，就漏了。前者很罕见；后者会以「和 [DECLARED] 对不上」红掉。
-     *
-     * ⚠️ 别在这个文件里写出「斜杠加星号」那两个字符连在一起的写法 —— Kotlin 的块
-     * 注释是**可嵌套**的，它会在注释里再开一层，报「Unclosed comment」。
-     * 上面那些话是刻意绕开这个序列写的（实测踩过）。
-     */
-    private fun scan(marker: String): Map<String, Int> =
-        productionSources()
-            .mapNotNull { file ->
-                val count = file.readLines()
-                    .map { it.trim() }
-                    .filterNot { it.startsWith("//") || it.startsWith("*") || it.startsWith("/*") }
-                    .sumOf { countOccurrences(it, marker) }
-                if (count == 0) null
-                else file.relativeTo(sourceRoot).invariantSeparatorsPath to count
-            }
-            .toMap()
-
-    /**
-     * 模块的 `src/main` 下所有 `.kt`。
-     *
-     * 模块名单**从 `settings.gradle.kts` 读**，不在这里写死：写死的话，
-     * 新加一个模块而它里面有出网点时，扫描看不见它 —— 而这条测试要证明的
-     * 恰恰是「出网的口子只有这几个」，它自己先漏掉一个模块就没有说服力了。
-     */
-    private fun productionSources(): List<File> {
-        val settings = File(sourceRoot, "settings.gradle.kts")
-        assertTrue(
-            "找不到 ${settings.path} —— `patchbay.sourceRoot` 指的应该是仓库根",
-            settings.isFile,
-        )
-
-        val modules = INCLUDE.findAll(settings.readText()).map { it.groupValues[1] }.toList()
-        assertTrue(
-            "从 settings.gradle.kts 里一个 `include(\":模块\")` 都没解析出来 —— " +
-                "声明写法变了，扫描会变成空的",
-            modules.isNotEmpty(),
-        )
-
-        return modules.flatMap { module ->
-            File(sourceRoot, "$module/src/main").walkTopDown()
-                .filter { it.isFile && it.extension == "kt" }
-                .toList()
-        }
-    }
+    // ---- 声明与实扫的对账 --------------------------------------------
 
     /** 把 [DECLARED] 里同一个标记的几处合成一张表（同一文件出现两次要相加）。 */
     private fun expectedSites(marker: String): Map<String, Int> =
@@ -305,17 +241,6 @@ class NetworkEgressTest {
             .flatMap { it.sites.entries }
             .groupBy({ it.key }, { it.value })
             .mapValues { (_, counts) -> counts.sum() }
-
-    private fun countOccurrences(text: String, marker: String): Int {
-        var from = 0
-        var count = 0
-        while (true) {
-            val at = text.indexOf(marker, from)
-            if (at < 0) return count
-            count++
-            from = at + marker.length
-        }
-    }
 
     // ---- README ------------------------------------------------------
 
@@ -344,35 +269,11 @@ class NetworkEgressTest {
         return ChineseNumbers.parse(raw)
     }
 
-    // ---- 取路径 ------------------------------------------------------
-
-    private fun fileFromProperty(name: String): File =
-        File(pathFromProperty(name)).also {
-            assertTrue("文件不存在：${it.absolutePath}", it.isFile)
-        }
-
-    private fun dirFromProperty(name: String): File =
-        File(pathFromProperty(name)).also {
-            assertTrue("目录不存在：${it.absolutePath}", it.isDirectory)
-        }
-
-    private fun pathFromProperty(name: String): String {
-        val raw = System.getProperty(name)
-        assertNotNull(
-            "构建配置没把 $name 传给测试 JVM —— 检查 app/build.gradle.kts 的 testOptions",
-            raw,
-        )
-        return raw!!
-    }
-
     private companion object {
         /** 那一句话的开头 —— README 和本文件都靠它定位。 */
         const val SENTENCE = "出网请求只有"
 
         /** 那一句里的「N 种」。数字串的写法由 [ChineseNumbers.PATTERN] 统一。 */
         val STATED = Regex("""$SENTENCE(${ChineseNumbers.PATTERN})种""")
-
-        /** `settings.gradle.kts` 里的 `include(":模块")`。 */
-        val INCLUDE = Regex("""include\(":(\w+)"\)""")
     }
 }
