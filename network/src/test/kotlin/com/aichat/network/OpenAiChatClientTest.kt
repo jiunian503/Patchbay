@@ -377,6 +377,49 @@ class OpenAiChatClientTest {
         assertTrue("期望 Network 异常，实际是 $error", error is ChatApiException.Network)
     }
 
+    // ---------- 上限 ----------
+
+    @Test
+    fun `流式响应超过上限时停下来而不是一直读`() = runBlocking {
+        // 一帧约 60 字节，2 MB 上限配 3.6 MB 负载 ⇒ 读到 2 MB 就该停
+        val frames = buildString {
+            repeat(60_000) {
+                append("""data: {"choices":[{"index":0,"delta":{"content":"x"}}]}""").append("\n\n")
+            }
+        }
+        server.enqueue(MockResponse(code = 200, body = frames))
+
+        val error = runCatching {
+            OpenAiChatClient(
+                ProviderConfig(baseUrl = server.url("/v1").toString(), apiKey = "k"),
+                maxStreamBytes = 2L * 1024 * 1024,
+            ).stream(request()).toList()
+        }.exceptionOrNull()
+
+        assertTrue("期望 Protocol 异常，实际是 $error", error is ChatApiException.Protocol)
+        assertTrue(
+            "提示里要说清上限是多少，实际是「${error!!.message}」",
+            error.message!!.contains("2 MB"),
+        )
+    }
+
+    @Test
+    fun `比 MCP 那边的 256 KB 大得多的回答不会被截断`() = runBlocking {
+        // 1.2 MB 的帧流 —— 比 MCP 的 256 KB 上限大四倍多。
+        // 这条用例钉住「LLM 的上限不是照抄 MCP 的」：照抄的话这里会红
+        val frames = buildString {
+            repeat(20_000) {
+                append("""data: {"choices":[{"index":0,"delta":{"content":"x"}}]}""").append("\n\n")
+            }
+        }
+        server.enqueue(MockResponse(code = 200, body = frames + doneFrame))
+
+        val events = client().stream(request()).toList()
+
+        assertEquals(20_000, events.count { it is ChatStreamEvent.TextDelta })
+        assertTrue("最后应该有一个收尾事件", events.last() is ChatStreamEvent.Finished)
+    }
+
     // ---------- 取消 ----------
 
     @Test

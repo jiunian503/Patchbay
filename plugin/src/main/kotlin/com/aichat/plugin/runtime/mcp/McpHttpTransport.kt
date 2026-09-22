@@ -1,6 +1,8 @@
 package com.aichat.plugin.runtime.mcp
 
 import com.aichat.domain.text.errorDetail
+import com.aichat.network.CappedSource
+import com.aichat.network.ResponseTooLargeException
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
 import java.io.IOException
@@ -17,10 +19,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody
-import okio.Buffer
-import okio.BufferedSource
-import okio.ForwardingSource
-import okio.Source
 import okio.buffer
 
 /**
@@ -338,29 +336,6 @@ internal class McpHttpTransport(
     }
 }
 
-/** 响应体超过了上限。单独一个类型，好把它和「网络断了」分开报。 */
-private class ResponseTooLargeException(message: String) : IOException(message)
-
-/**
- * 把**读到的字节数**卡死在上限上。
- *
- * ## 为什么在字节这一层卡，而不是在行这一层
- *
- * 读取是 `readUtf8Line()` 逐行做的，看起来「累计行长度」就够了 ——
- * 但那是**读完一行之后**才更新的。对端把整个工具结果放在一行 JSON 里
- * （很常见，`json.Marshal` 默认就不换行）时，这一行可能是几十 MB，
- * 而计数在那一行读完之后才加上去：内存已经吃满了。
- * 在字节流这一层拦，就没有「先分配再判断」的窗口。
- */
-private class CappedSource(delegate: Source, private val limit: Long) : ForwardingSource(delegate) {
-
-    private var read = 0L
-
-    override fun read(sink: Buffer, byteCount: Long): Long {
-        val n = super.read(sink, byteCount)
-        if (n <= 0) return n
-        read += n
-        if (read > limit) throw ResponseTooLargeException("响应超过 $limit 字节上限")
-        return n
-    }
-}
+// 「读多少字节就停」那两层（`CappedSource` / `ResponseTooLargeException`）
+// 已提到 :network —— 那里有第二个消费者（`OpenAiChatClient` 的流式回答），
+// 上限值不同，但「怎么卡」只该有一份实现。
