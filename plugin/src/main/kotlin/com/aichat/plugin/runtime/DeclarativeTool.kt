@@ -127,16 +127,18 @@ class DeclarativeTool(
         }
 
     /**
-     * 是否弹窗确认。规则见 [ToolSpec.requiresConfirmation] 的 KDoc：
+     * 是否弹窗确认。规则**只有一处**，在 [ToolConfirmation.declarative] ——
+     * 详情页那句「调用前会问你」也走它。
      *
-     * 1. 作者写了值 → 听作者的
-     * 2. 作者没写 → 按 HTTP 方法兜底，只有 GET 免确认
-     * 3. 无论作者怎么写，**声明了任意主机就一律确认** ——
-     *    那等于把「请求发去哪」交给模型决定，和内置的 `fetch_url` 是同一件事，
-     *    而 `fetch_url` 是要确认的
+     * 抄一遍的代价见那里的 KDoc：这里写错工具会跑不起来、很快被发现，
+     * 那边写错只是界面安静地说反话、没人会发现。
      */
     override val requiresConfirmation: Boolean
-        get() = guard.allowsAnyHost || (spec.requiresConfirmation ?: (request.method != HttpMethod.Get))
+        get() = ToolConfirmation.declarative(
+            anyHost = guard.allowsAnyHost,
+            declared = spec.requiresConfirmation,
+            method = request.method,
+        )
 
     override suspend fun execute(arguments: JsonObject): ToolResult {
         val url = try {

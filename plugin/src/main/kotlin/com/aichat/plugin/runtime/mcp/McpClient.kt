@@ -6,6 +6,7 @@ import com.aichat.domain.tool.ToolDefinition
 import com.aichat.domain.tool.ToolResult
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
+import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.ToolResultText
 import java.io.IOException
 import kotlinx.serialization.SerialName
@@ -530,8 +531,9 @@ class McpTool(
             append("。")
         }
 
+    /** 规则**只有一处**，在 [ToolConfirmation.mcp] —— 详情页那句「调用前会问你」也走它。 */
     override val requiresConfirmation: Boolean
-        get() = guard.allowsAnyHost || !descriptor.readOnly
+        get() = ToolConfirmation.mcp(anyHost = guard.allowsAnyHost, readOnly = descriptor.readOnly)
 
     override suspend fun execute(arguments: JsonObject): ToolResult = try {
         val result = client.callTool(descriptor, arguments)

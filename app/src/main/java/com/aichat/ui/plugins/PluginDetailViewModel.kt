@@ -9,11 +9,13 @@ import com.aichat.domain.text.errorDetail
 import com.aichat.di.AppContainer
 import com.aichat.plugin.host.PluginRegistry
 import com.aichat.plugin.manifest.FilesystemScope
+import com.aichat.plugin.manifest.HttpMethod
 import com.aichat.plugin.manifest.PluginManifest
 import com.aichat.plugin.manifest.SettingType
 import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.manifest.displayName
 import com.aichat.plugin.manifest.isHighRisk
+import com.aichat.plugin.runtime.ToolConfirmation
 import com.aichat.plugin.runtime.mcp.McpToolSnapshot
 import com.aichat.plugin.runtime.mcp.displayName
 import com.aichat.plugin.workspace.PluginWorkspace
@@ -61,7 +63,9 @@ data class PluginToolRow(
      *
      * MCP 工具的这条规则不一样（`readOnlyHint` 只能免掉确认，
      * 声明了任意主机时一律确认），但**这里不需要知道**：
-     * 装配好的 [com.aichat.domain.tool.Tool] 已经算好了，直接读它的。
+     * 装配好的 [com.aichat.domain.tool.Tool] 已经算好了，直接读它的；
+     * 注册表里查不到时由 [toolRows] 按 [ToolConfirmation] 的同一份规则算 ——
+     * 两条来源必须给出同一个答案，否则这句「实际生效」就是假的。
      */
     val requiresConfirmation: Boolean,
 )
@@ -278,7 +282,15 @@ class PluginDetailViewModel(
                         message = previous.mcp.message,
                         failed = previous.mcp.failed,
                     ),
-                    tools = toolRows(status.isMcp, cache?.tools, manifest, registry, anyHost),
+                    tools = toolRows(
+                        status.isMcp,
+                        cache?.tools,
+                        manifest,
+                        // 装配好的工具算出来的值；注册表里查不到就给 null，
+                        // 由 toolRows 按同一份规则兜底
+                        registered = { registry.find(it)?.requiresConfirmation },
+                        anyHost = anyHost,
+                    ),
                     // 清单解析不了时权限区**不能**给空列表：界面会把空列表读成
                     // 「没有申请任何权限」，而真相是「看不出」。详见 [permissionLines]
                     permissions = permissionLines(
@@ -339,50 +351,6 @@ class PluginDetailViewModel(
         if (!isMcp || connected || !enabled) return
         autoConnectTried = true
         refreshTools()
-    }
-
-    /**
-     * 工具列表的两条来源。
-     *
-     * ## 为什么 MCP 和声明式不能共用一条
-     *
-     * 声明式插件的工具是**清单里写死的**，任何时候都能显示，那是用户
-     * 装它的时候看到的契约。MCP 插件的工具**在对端手里**，本地只有一份
-     * 会过期的快照 —— 没连过的时候一个都显示不出来，而那时候界面必须
-     * 说清「还没拉取」而不是「这个插件没有工具」。
-     *
-     * 这里刻意**不**从注册表反查工具（`registry.find(name)` 只能一个一个查）：
-     * 注册表里没有的插件（被停用、清单坏了）也要能显示它「本来会提供什么」。
-     */
-    private fun toolRows(
-        isMcp: Boolean,
-        cache: List<McpToolSnapshot>?,
-        manifest: PluginManifest?,
-        registry: PluginRegistry,
-        anyHost: Boolean,
-    ): List<PluginToolRow> {
-        if (isMcp) {
-            return cache.orEmpty().map { snapshot ->
-                PluginToolRow(
-                    name = snapshot.name,
-                    description = snapshot.description,
-                    requiresConfirmation = registry.find(snapshot.name)?.requiresConfirmation
-                        // 注册表里没有（插件被停用 / 还没装配完）时按同一套规则自己算：
-                        // 声明了任意主机一律确认，否则看对端的 readOnlyHint。
-                        // 和 `McpTool.requiresConfirmation` 是同一条规则
-                        ?: (anyHost || !snapshot.readOnly),
-                )
-            }
-        }
-
-        return manifest?.tools.orEmpty().map { spec ->
-            PluginToolRow(
-                name = spec.name,
-                description = spec.description,
-                requiresConfirmation = registry.find(spec.name)?.requiresConfirmation
-                    ?: (spec.requiresConfirmation == true),
-            )
-        }
     }
 
     /**
