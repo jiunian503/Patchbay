@@ -3,6 +3,7 @@ package com.aichat.sandbox
 import android.os.Process
 import android.util.Log
 import com.aichat.domain.text.errorDetail
+import com.aichat.network.peekTextCapped
 import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
@@ -290,8 +291,11 @@ internal class SandboxEngine(
         builder.method(method, payload)
 
         guard.call(client, builder.build()).use { response ->
-            val text = response.peekBody(MAX_BODY_BYTES + 1L).string()
-            if (text.length > MAX_BODY_BYTES) {
+            // 超上限要报「太大了」：直接 `peekBody(MAX_BODY_BYTES)` 会把正文截断，
+            // 插件拿到的是一段残废的 JSON，而它报出来的会是「对端返回的不是 JSON」（§112）。
+            // 上限仍然按**字节**算 —— 这个常量叫 MAX_BODY_BYTES，报给插件的话也是 KB
+            val text = response.peekTextCapped(MAX_BODY_BYTES)
+            if (text == null) {
                 envelope(
                     ok = false,
                     error = "响应体超过 ${MAX_BODY_BYTES / 1024} KB，宿主没有把它整个读进来。" +

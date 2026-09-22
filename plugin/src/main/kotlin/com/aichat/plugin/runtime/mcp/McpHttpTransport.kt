@@ -3,6 +3,7 @@ package com.aichat.plugin.runtime.mcp
 import com.aichat.domain.text.errorDetail
 import com.aichat.network.CappedSource
 import com.aichat.network.ResponseTooLargeException
+import com.aichat.network.peekTextCapped
 import com.aichat.plugin.permission.NetworkDeniedException
 import com.aichat.plugin.permission.NetworkGuard
 import java.io.IOException
@@ -224,7 +225,15 @@ internal class McpHttpTransport(
     }
 
     private fun readJson(response: Response): JsonRpcResponse {
-        val text = response.peekBody(MAX_BODY_BYTES).string()
+        // 超上限要报「太大了」，不能让它截断之后再报成「对端返回的不是 JSON」——
+        // 那句话把宿主自己的限制说成了对端的问题，用户会去投诉一个没毛病的服务端。
+        // 同一份文件里的 `readSse` 早就报对了，这里漏了（§112）
+        val text = response.peekTextCapped(MAX_BODY_BYTES)
+            ?: throw McpFailure(
+                "MCP 服务的响应超过 ${MAX_BODY_BYTES / 1024} KB 上限，宿主没有把它整个读进来。" +
+                    "请让用户换一个返回内容更少的工具。",
+                retryable = false,
+            )
         val obj = runCatching { McpWire.json.parseToJsonElement(text) as? JsonObject }.getOrNull()
             ?: throw McpFailure(
                 "MCP 服务返回的不是一个 JSON 对象：${text.trim().take(300)}",

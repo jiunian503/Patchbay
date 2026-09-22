@@ -325,6 +325,23 @@ class McpClientTest {
         assertTrue(failure.message!!.contains("上限"))
     }
 
+    @Test
+    fun `JSON 响应超过上限时报错 而不是截断之后怪对端`() {
+        // 直接 `peekBody(MAX).string()` 会把正文悄悄截断，于是 JSON 解析失败，
+        // 报出来的是「对端返回的不是 JSON」—— 宿主自己的限制被说成了对端的问题。
+        // 这条和上一条是同一件事的两个形态，分开写是因为它们走的是两条不同的读取路径
+        server.enqueue(json("""{"jsonrpc":"2.0","id":1,"result":{"pad":"${"x".repeat(300 * 1024)}"}}"""))
+
+        val failure = expectFailure { mcp().listTools() }
+
+        assertFalse("超限重试也没用", failure.retryable)
+        assertTrue("要说清是太大了：${failure.message}", failure.message!!.contains("上限"))
+        assertFalse(
+            "不能把锅甩给对端：${failure.message}",
+            failure.message!!.contains("不是一个 JSON 对象"),
+        )
+    }
+
     // ------------------------------------------------------------------ 回退判定
 
     @Test
