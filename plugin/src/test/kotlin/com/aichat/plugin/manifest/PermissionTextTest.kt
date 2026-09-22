@@ -1,5 +1,6 @@
 package com.aichat.plugin.manifest
 
+import com.aichat.plugin.Manifests
 import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -171,6 +172,70 @@ class PermissionTextTest {
                 "并想清楚它算不算高危（算的话 describe() 要给它一行 ⚠️）",
             covered,
             actual,
+        )
+    }
+
+    /**
+     * ⭐ 清单诊断和权限清单，必须对**同一批**权限说「不支持」。
+     *
+     * `shell` / `linuxEnv` / `device` 这三项「声明了但宿主不兑现」的事实，
+     * 在这两个地方各写了一遍：
+     *
+     * - `ManifestParser` 给出一条 `Warning`（渲染到安装页的 `ProblemList`）
+     * - [describe] 给出一行（渲染到安装页 / 详情页的权限区）
+     *
+     * 上面那条测试钉的是**措辞**（每行都得写出「不支持」），但两处各自
+     * 手写例子 —— 将来谁真把 `device` 做出来了，删掉一边的「不支持」、
+     * 忘了另一边，两边都不会红。那时用户在同一个安装页上会**同时**看到
+     * 「拿不到这些数据」和一条普通权限行。
+     *
+     * 所以这里不写「哪几项」的清单，只比同一份清单上两个渲染点报出来的**条数**：
+     * 三项逐一单独打开，两边都必须恰好 1 条；一项都不声明时必须都是 0 条。
+     *
+     * 断言 `1` 是**故意**的：谁真兑现了某一项，这里会先红，逼他回来看
+     * 「另外两处渲染点（还有 `PluginRepository.permissionDiff`）改了没有」——
+     * 这正是 `isHighRisk` 的 KDoc 里那句「记得回来加」缺的那个提醒。
+     */
+    @Test
+    fun `清单诊断和权限清单说的是同一批权限`() {
+        val cases = listOf(
+            "shell" to ""","shell":true""",
+            "linuxEnv" to ""","linuxEnv":true""",
+            "device" to ""","device":["contacts"]""",
+        )
+
+        cases.forEach { (name, extra) ->
+            val check = ManifestParser.parse(Manifests.declarative(extraPermissions = extra))
+            val manifest = requireNotNull(check.manifest) { "测试清单本身就不合法：\n${check.report()}" }
+            val fromProblems = check.problems.count { it.message.contains("不支持") }
+            val fromList = manifest.permissions.describe().count { it.contains("不支持") }
+
+            assertEquals(
+                "「$name」这一项：清单诊断报了 $fromProblems 条「不支持」，" +
+                    "权限清单说了 $fromList 条 —— 只改一边时，用户会在同一个安装页上" +
+                    "一边看到「拿不到这些数据」、一边看到一条普通权限行",
+                fromProblems,
+                fromList,
+            )
+            assertEquals(
+                "「$name」这一项两边都不再说「不支持」了 —— 如果它真的兑现了，" +
+                    "回来把 `isHighRisk` 和 `PluginRepository.permissionDiff` 一起改；" +
+                    "如果没兑现，那是有人把实话删掉了",
+                1,
+                fromProblems,
+            )
+        }
+
+        val quiet = ManifestParser.parse(Manifests.declarative())
+        assertEquals(
+            "一项都没声明时，清单诊断不该说「不支持」：${quiet.problems}",
+            0,
+            quiet.problems.count { it.message.contains("不支持") },
+        )
+        assertEquals(
+            "一项都没声明时，权限清单不该说「不支持」",
+            0,
+            requireNotNull(quiet.manifest).permissions.describe().count { it.contains("不支持") },
         )
     }
 

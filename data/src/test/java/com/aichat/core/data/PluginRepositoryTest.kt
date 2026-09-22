@@ -3,6 +3,7 @@ package com.aichat.core.data
 import com.aichat.domain.secret.InMemorySecretStore
 import com.aichat.plugin.Manifests
 import com.aichat.plugin.manifest.FilesystemScope
+import com.aichat.plugin.manifest.describe
 import com.aichat.plugin.runtime.mcp.McpEra
 import com.aichat.plugin.runtime.mcp.McpToolCache
 import com.aichat.plugin.runtime.mcp.toDescriptor
@@ -656,6 +657,57 @@ class PluginRepositoryTest {
         )
 
         assertTrue("收紧权限不该打扰用户：${result.permissionChanges}", result.permissionChanges.isEmpty())
+    }
+
+    /**
+     * ⭐ 升级确认页说的「不支持」，必须和权限清单说的是**同一批**。
+     *
+     * 「`shell` / `linuxEnv` / `device` 声明了但宿主不兑现」这个事实，
+     * 在这两个地方各写了一遍：
+     *
+     * - `PluginRepository.permissionDiff`：「新增 shell 权限声明（当前版本还不支持）」
+     * - `PluginPermissions.describe()`：「shell：声明了执行系统命令（当前版本还不支持，不会执行）」
+     *
+     * 一个渲染在升级确认页（`UpgradeWarning`），一个渲染在权限区。将来谁真把
+     * 某一项做出来了，改了一边忘另一边时，两边都不会红 —— 用户会在同一次升级里
+     * 看到两句互相矛盾的话。
+     *
+     * 所以逐项打开一遍，只比条数：`permissionDiff` 说「不支持」的条数，必须等于
+     * `describe()` 说「不支持」的行数。这条把 `:data` 和 `:plugin` 拴在一起 ——
+     * 断言里那个 `1` 是**故意**的，谁兑现了某一项，这里会先红。
+     */
+    @Test
+    fun `升级提示里的「不支持」和权限清单说的是同一批`() = runTest {
+        val cases = listOf(
+            "shell" to ""","shell":true""",
+            "linuxEnv" to ""","linuxEnv":true""",
+            "device" to ""","device":["contacts"]""",
+        )
+
+        cases.forEach { (name, extra) ->
+            val env = Env()
+            env.repo.install(Manifests.declarative())
+            val next = Manifests.declarative(version = "1.1.0", extraPermissions = extra)
+
+            val changes = env.repo.install(next).permissionChanges
+            val fromDiff = changes.count { it.contains("不支持") }
+            val fromList = Manifests.parse(next).permissions.describe().count { it.contains("不支持") }
+
+            assertEquals(
+                "「$name」这一项：升级确认页报了 $fromDiff 条「不支持」，" +
+                    "权限清单说了 $fromList 条（升级提示：$changes）—— 只改一边时，" +
+                    "用户会在同一次升级里看到两句互相矛盾的话",
+                fromList,
+                fromDiff,
+            )
+            assertEquals(
+                "「$name」这一项升级时一句「不支持」都没说 —— 如果它真的兑现了，" +
+                    "那 `describe()` 也要一起改、`isHighRisk` 要把它算进去；" +
+                    "如果没兑现，那是有人把实话删掉了",
+                1,
+                fromDiff,
+            )
+        }
     }
 
     /** 同上，这条管的是「运行形态变了」那一行（原来是 `declarative → native`）。 */
