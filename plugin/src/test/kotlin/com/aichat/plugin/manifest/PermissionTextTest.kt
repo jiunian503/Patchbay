@@ -1,5 +1,7 @@
 package com.aichat.plugin.manifest
 
+import java.lang.reflect.Modifier
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -106,6 +108,69 @@ class PermissionTextTest {
         assertFalse(
             "同上",
             PluginPermissions(device = listOf(DeviceCapability.Contacts)).isHighRisk,
+        )
+    }
+
+    /**
+     * ⭐ `describe()` 里的 `⚠️` 和 [isHighRisk] 必须说的是**同一件事**。
+     *
+     * 这两条判据是**同一份风险的两种渲染**，但各自独立写着：
+     *
+     * - `describe()` 决定权限清单里**哪一行**带 `⚠️`
+     * - `isHighRisk` 决定整张卡要不要染红、标题要不要换成「需要你留意」
+     *
+     * 两个消费者（安装页 / 插件详情页）都**同时**用这一对，所以只改一边
+     * 的后果都是**静默**的：
+     *
+     * - 标红了却不说为什么 ⇒ 用户看到「需要你留意」却找不到要留意哪一条
+     * - 有风险却不标红 ⇒ 用户扫过去，以为那是一条普通权限
+     *
+     * ⚠️ 上面那两条测试是**各自手写例子的清单**，它们今天恰好一致 ——
+     * 但加一项高危权限、只改一边时，两边都不会红。所以这里改成**逐字段**过一遍：
+     * 表里每一项单独打开一次，两种判据必须同进同退。
+     *
+     * 最后那条断言钉的是**这张表本身**：`PluginPermissions` 加了字段就必须
+     * 回来给它一例，否则守卫会以「通过」的形式安静失效 —— 那比没有守卫更糟。
+     */
+    @Test
+    fun `describe 的警告标记与 isHighRisk 说的是同一件事`() {
+        val cases = linkedMapOf(
+            "network = *" to PluginPermissions(network = listOf("*")),
+            "network = 具体主机" to PluginPermissions(network = listOf("api.open-meteo.com")),
+            "network = 空" to PluginPermissions(),
+            "filesystem = read" to PluginPermissions(filesystem = FilesystemScope.Read),
+            "filesystem = readwrite" to PluginPermissions(filesystem = FilesystemScope.ReadWrite),
+            "shell = true" to PluginPermissions(shell = true),
+            "device = 全部" to PluginPermissions(device = DeviceCapability.entries.toList()),
+            "linuxEnv = true" to PluginPermissions(linuxEnv = true),
+            "全开" to PluginPermissions(
+                network = listOf("*"),
+                filesystem = FilesystemScope.ReadWrite,
+                shell = true,
+                device = DeviceCapability.entries.toList(),
+                linuxEnv = true,
+            ),
+        )
+
+        cases.forEach { (name, permissions) ->
+            assertEquals(
+                "「$name」这一例上两条判据说法不一致 —— 要么标红了不说为什么，" +
+                    "要么有风险却不标红，用户两种都看不出来",
+                permissions.isHighRisk,
+                permissions.describe().any { it.startsWith("⚠️") },
+            )
+        }
+
+        val covered = setOf("network", "filesystem", "shell", "device", "linuxEnv")
+        val actual = PluginPermissions::class.java.declaredFields
+            .filterNot { Modifier.isStatic(it.modifiers) || it.isSynthetic }
+            .map { it.name }
+            .toSet()
+        assertEquals(
+            "PluginPermissions 的字段变了 —— 给新字段在上面那张表里加一例，" +
+                "并想清楚它算不算高危（算的话 describe() 要给它一行 ⚠️）",
+            covered,
+            actual,
         )
     }
 
