@@ -429,10 +429,11 @@ private fun WorkspaceBlock(
             }
             if (state.files.size > shown.size) {
                 // 不静默截断：没列出来的文件也要让用户知道它存在，
-                // 否则他会以为工作区里就这 30 个
+                // 否则他会以为工作区里就这 30 个。
+                // ⚠️ 别在这里写「工作区最多 256 个」—— 那是**能存**的上限，
+                // 不是**能显示**的上限；两个数都对，读者推出的结论是错的（§111）。
                 Text(
-                    text = "还有 ${state.files.size - shown.size} 个文件没有列出来" +
-                        "（工作区最多 ${PluginWorkspace.MAX_ENTRIES} 个）。",
+                    text = workspaceMoreFilesHint(state.files.size - shown.size),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -489,8 +490,8 @@ private fun WorkspaceBlock(
     }
 }
 
-/** 文件列表最多列几行。超出的折成一句「还有 N 个」。 */
-private const val MAX_VISIBLE_FILES = 30
+// MAX_VISIBLE_FILES 搬去了 WorkspaceFileListHintUi.kt —— 它和那句提示是一件事，
+// 而且那边单独一个文件才能让可见性守卫守得住（§111.7）。
 
 @Composable
 private fun ToolBlock(
