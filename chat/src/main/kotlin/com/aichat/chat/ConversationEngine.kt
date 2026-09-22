@@ -117,10 +117,17 @@ class ConversationEngine(
      * 被取消时不发任何终止事件 —— 用户按了停止，UI 自己知道。
      */
     fun send(history: List<ChatMessage>, config: ChatConfig): Flow<ChatEvent> = flow {
-        // 「角色先开口」会让消息数组以 assistant 开头，而那个形状有些后端
-        // 直接拒收（见 [proactiveOpening]）。所以把最前面那几条主动发言
+        // 上下文是按**条数**切的（窗口切点任意，见 [dropUnsendableHead]），
+        // 所以数组开头可能是几条根本发不出去的消息 —— 先摘掉它们
+        val cleaned = history.dropUnsendableHead()
+
+        // 然后处理「角色先开口」：它会让消息数组以 assistant 开头，而那个形状
+        // 有些后端直接拒收（见 [proactiveOpening]）。把最前面那几条主动发言
         // 摘出来、折进系统提示词 —— 请求形状合法，模型也照样知道自己说过什么
-        val opening = history.proactiveOpening()
+        //
+        // ⚠️ 顺序不能反：先摘开场白的话，开头一条空的 assistant 会让
+        // `takeWhile` 当场停下，真正的开场白就漏在数组里、还是发不出去
+        val opening = cleaned.proactiveOpening()
         val system = listOfNotNull(config.systemMessage(), openingContext(opening))
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
@@ -128,7 +135,7 @@ class ConversationEngine(
 
         val working = mutableListOf<ChatMessage>()
         system?.let { working += ChatMessage.system(it) }
-        working += history.drop(opening.size)
+        working += cleaned.drop(opening.size)
 
         // 跨轮累积：最终答案由多轮文本拼成，用户看到的是一条完整回复
         val allText = StringBuilder()
@@ -328,6 +335,48 @@ internal fun List<ChatMessage>.proactiveOpening(): List<ChatMessage> =
     takeWhile {
         it.role == ChatMessage.Role.Assistant && it.toolCalls.isEmpty() && it.content.isNotBlank()
     }
+
+/**
+ * 摘掉消息数组开头那几条**发不出去**的消息。
+ *
+ * ## 为什么开头会冒出这种东西
+ *
+ * 上下文是按**条数**切的（`ConversationStore.DEFAULT_HISTORY_LIMIT`，SQL 是
+ * `ORDER BY created_at DESC LIMIT n`），**切点落在哪条消息上没有任何约束**。
+ * 而一次工具调用是**一条链**：
+ *
+ *     assistant(tool_calls) → tool → assistant
+ *
+ * 窗口正好切在链中间时，数组第一条就是那条 `tool` 结果，它对应的
+ * `assistant` 落在窗口外 —— 服务端必然拒收（找不到对应的 `tool_calls`）。
+ * [proactiveOpening] 的 KDoc 里写过同一句话：「拆开会变成『tool 结果找不到
+ * 对应的调用』」。它当时说的是**别把链拆开**；这里是另一半：
+ * **链已经被窗口拆开了，得把散在外面的那半截摘掉**。
+ *
+ * 另一种形状：推理模型只吐了思维链就被停掉，落库的行有 `reasoning` 而
+ * `content` 是空的（`reasoning` 存而不发，见 [ChatMessage]）。这条行序列化
+ * 出来是 `{"role":"assistant"}` —— 什么都没有，放在开头同样发不出去。
+ *
+ * ## 为什么只处理**开头**
+ *
+ * 窗口只能切在开头，所以孤儿只可能出现在开头。中间那些「空的 assistant」
+ * 不动：删掉它们会让两条 `user` 相邻，而要求角色严格交替的对话模板
+ * （正是 [proactiveOpening] 要绕开的那类）同样会拒 ——
+ * 拿一个**可能**的问题换一个**必然**的问题不划算。
+ *
+ * ## 为什么「带 tool_calls 的 assistant 打头」也不动
+ *
+ * 那一条是**已经定过的**：`ConversationEngineTest` 里有用例专门钉住
+ * 「摘不掉，就原样发出去 —— 那是数据的问题，不该被这个整形逻辑悄悄改掉」。
+ * 它和这里的区别在于：孤儿 `tool` 结果**根本没有合法形态**，而带
+ * `tool_calls` 的 assistant 打头至少是自洽的一条链。
+ */
+internal fun List<ChatMessage>.dropUnsendableHead(): List<ChatMessage> =
+    dropWhile { it.role == ChatMessage.Role.Tool || it.isSilentAssistant() }
+
+/** 序列化出来什么都没有的 assistant 行：只有思维链，或者干脆是空的。 */
+private fun ChatMessage.isSilentAssistant(): Boolean =
+    role == ChatMessage.Role.Assistant && content.isBlank() && toolCalls.isEmpty()
 
 /**
  * 把开场白写成一段给模型看的上下文。空列表返回空串（调用方据此决定拼不拼）。

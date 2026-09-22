@@ -250,6 +250,75 @@ class ConversationEngineTest {
         )
     }
 
+    // ---------- 窗口边界：按条数切出来的历史，开头可能发不出去 ----------
+
+    @Test
+    fun `窗口切在工具链中间时，开头那条孤儿 tool 结果被摘掉`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        // 上下文是按条数切的（LIMIT 50），切点任意。切在
+        // assistant(tool_calls) → tool 之间时，数组第一条就是那条 tool 结果，
+        // 而它对应的 assistant 落在窗口外 —— 服务端必然拒收
+        ConversationEngine(client)
+            .send(
+                listOf(
+                    ChatMessage.tool("1", "25°C"),
+                    ChatMessage.user("那明天呢"),
+                ),
+                config(),
+            )
+            .toList()
+
+        assertEquals(listOf("user"), client.requests[0].messages.map { it.role })
+    }
+
+    @Test
+    fun `只有思维链的 assistant 行不会成为第一条`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        // 推理模型只吐了思维链就被停掉 ⇒ 落库的行有 reasoning、content 是空的。
+        // reasoning 存而不发，所以这条行序列化出来是 {"role":"assistant"} —— 空的
+        ConversationEngine(client)
+            .send(
+                listOf(
+                    ChatMessage(ChatMessage.Role.Assistant, "", reasoning = "先想了想"),
+                    ChatMessage.user("嗯"),
+                ),
+                config(),
+            )
+            .toList()
+
+        assertEquals(listOf("user"), client.requests[0].messages.map { it.role })
+    }
+
+    @Test
+    fun `摘掉开头那几条之后，真正的开场白照样折进系统提示词`() = runTest {
+        val client = FakeChatClient()
+        client.enqueueRound(ChatStreamEvent.TextDelta("嗯"))
+
+        // 顺序不能反：先摘开场白的话，开头这条空的 assistant 会让 takeWhile
+        // 当场停下，真正的开场白就漏在数组里、还是发不出去
+        ConversationEngine(client)
+            .send(
+                listOf(
+                    ChatMessage(ChatMessage.Role.Assistant, "", reasoning = "先想了想"),
+                    ChatMessage.assistant("你来啦。"),
+                    ChatMessage.user("你好"),
+                ),
+                config(),
+            )
+            .toList()
+
+        val sent = client.requests[0].messages
+        assertEquals(listOf("system", "user"), sent.map { it.role })
+        assertTrue(
+            "开场白要以「你已经说过」的形式留在提示词里：${sent[0].content}",
+            sent[0].content.orEmpty().contains("你来啦。"),
+        )
+    }
+
     @Test
     fun `思维链被累积进最终消息`() = runTest {
         val client = FakeChatClient()
