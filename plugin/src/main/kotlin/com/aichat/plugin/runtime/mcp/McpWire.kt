@@ -334,10 +334,22 @@ data class McpCallResult(val text: String, val isError: Boolean)
 /**
  * 调用 MCP 服务失败。
  *
- * [retryable] 不是一个装饰性的标记 —— 它决定写给模型的那句话。
- * 网络故障要说「可以稍后重试」，协议／配置问题要说「重试也不会成功，
- * 请告诉用户检查配置」。**混成一句「调用失败」的话，模型会对着一个
- * 永远不会成功的请求反复重试**，白烧好几轮上下文。
+ * ## ⚠️ [retryable] **不决定**写给模型的那句话 —— 模型看不到它
+ *
+ * 这条 KDoc 原来写的是「它决定写给模型的那句话」。**那句话是错的**：
+ * 模型拿到的只有 [message] 一个字符串（`PluginHost` 把 `e.message` 放进
+ * `problem()`，`McpClient` 把它交给 `ToolResult.error()`），**没有任何一条路
+ * 把 [retryable] 递给模型**。全仓搜一遍就知道：**每一条失败路径都在设它，
+ * 生产代码里却没有一处读它**，只有测试在读。
+ *
+ * 所以**每一句 message 自己必须把「能不能重试」说清楚** —— 网络故障要说
+ * 「可以稍后重试」，协议／配置问题要说「重试也不会成功，请告诉用户检查配置」。
+ * **混成一句「调用失败」的话，模型会对着一个永远不会成功的请求反复重试**，
+ * 白烧好几轮上下文。这条规则由 `McpFailureVerdictTest` 机械守着。
+ *
+ * [retryable] 仍然有用，但它的读者是**宿主**：诊断、日志、测试断言。
+ * 这正是 `ScriptRuntime.Kind` 那条 KDoc 记下来的同一课 —— 那边写着
+ * 「它的读者要说清楚是宿主」。同一个错误犯过两次，这次把话说全。
  */
 open class McpFailure(
     message: String,
@@ -352,21 +364,46 @@ open class McpFailure(
  * 那正是规范给的「对端是旧版」的信号，回退逻辑靠的就是这个字段。
  * 把「认不认得出来」当成一个显式的字段，而不是在回退代码里再解析一遍 body：
  * 两处解析的话，迟早会出现「回退判定说认得、报错文案说没认出来」。
+ *
+ * ⚠️ [McpFailure.retryable] **不是一个参数** —— 它由 [status] 直接推出
+ * （[isRetryableStatus]）。原来这里有一个 `retryable: Boolean = false` 的参数，
+ * 而唯一的调用点忘了传它，于是 5xx/429 被静默标成「不可重试」。
+ * **删掉参数比再加一条守卫彻底**：错误的写法现在在语法上就不存在。
  */
 internal class McpHttpFailure(
     val status: Int,
     val body: String,
     val rpcError: JsonRpcError?,
     message: String,
-    retryable: Boolean = false,
-) : McpFailure(message, retryable)
+) : McpFailure(message, isRetryableStatus(status))
 
-/** 状态码 → 给模型看的一句话。 */
+/**
+ * 这个状态码值得再试一次吗 —— 「能不能重试」的**唯一一处**判据。
+ *
+ * 429（限流）和 5xx（服务端自己出的问题）稍后可能就好了；其余状态码
+ * （400/401/403/404/405…）重试一万次结果也一样。
+ *
+ * 拆成两个函数而不是各写一份判断，是为了**一个判据、两个渲染**：模型看
+ * [retryAdvice]，宿主看 `McpHttpFailure.retryable`，两者都由这里决定。
+ */
+internal fun isRetryableStatus(status: Int): Boolean = status == 429 || status >= 500
+
+/** 状态码 → 写给模型的「能不能重试」的裁决。 */
+internal fun retryAdvice(status: Int): String =
+    if (isRetryableStatus(status)) "这是服务端自己的问题，可以稍后重试。" else "重试也不会成功。"
+
+/**
+ * 状态码 → 给模型看的一句话。
+ *
+ * ⚠️ **每一句都要带 [retryAdvice]** —— 模型看不到 `retryable`（理由见 [McpFailure]
+ * 的 KDoc），它只能从这句话里读出该不该再试一次。这条规则由
+ * `McpFailureVerdictTest` 机械守着。
+ */
 internal fun describeHttpStatus(status: Int, host: String, detail: String): String = when (status) {
-    400 -> "MCP 服务 $host 拒绝了这次请求（HTTP 400）。服务端说：$detail"
+    400 -> "MCP 服务 $host 拒绝了这次请求（HTTP 400）。服务端说：$detail。" + retryAdvice(status)
     403 -> "MCP 服务 $host 拒绝了这次请求（HTTP 403）。这通常是服务端在防 DNS rebinding，" +
-        "需要服务端把本 App 的来源加进允许列表。"
-    404 -> "MCP 服务 $host 说没有这个方法（HTTP 404）。"
-    405 -> "MCP 服务 $host 不接受这个 HTTP 方法（HTTP 405）。"
-    else -> "MCP 服务 $host 返回 HTTP $status。服务端说：$detail"
+        "需要服务端把本 App 的来源加进允许列表。" + retryAdvice(status)
+    404 -> "MCP 服务 $host 说没有这个方法（HTTP 404）。" + retryAdvice(status)
+    405 -> "MCP 服务 $host 不接受这个 HTTP 方法（HTTP 405）。" + retryAdvice(status)
+    else -> "MCP 服务 $host 返回 HTTP $status。服务端说：$detail。" + retryAdvice(status)
 }

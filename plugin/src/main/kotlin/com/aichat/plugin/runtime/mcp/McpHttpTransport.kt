@@ -231,12 +231,14 @@ internal class McpHttpTransport(
         val text = response.peekTextCapped(MAX_BODY_BYTES)
             ?: throw McpFailure(
                 "MCP 服务的响应超过 ${MAX_BODY_BYTES / 1024} KB 上限，宿主没有把它整个读进来。" +
+                    "重试也不会成功 —— 同样的请求会拿到同样大的响应，" +
                     "请让用户换一个返回内容更少的工具。",
                 retryable = false,
             )
         val obj = runCatching { McpWire.json.parseToJsonElement(text) as? JsonObject }.getOrNull()
             ?: throw McpFailure(
-                "MCP 服务返回的不是一个 JSON 对象：${text.trim().take(300)}",
+                "MCP 服务返回的不是一个 JSON 对象：${text.trim().take(300)}。" +
+                    "重试也不会成功，请告诉用户这个 MCP 服务可能有问题。",
                 retryable = false,
             )
         return decode(obj)
@@ -278,6 +280,7 @@ internal class McpHttpTransport(
         } catch (e: ResponseTooLargeException) {
             throw McpFailure(
                 "MCP 服务的事件流超过 ${MAX_BODY_BYTES / 1024} KB 上限，已停止读取。" +
+                    "重试也不会成功 —— 同样的请求会拿到同样大的响应，" +
                     "请让用户换一个返回内容更少的工具。",
                 retryable = false,
             )

@@ -82,6 +82,9 @@ tasks.test {
     // 用 rootProject 而不是 `$projectDir/../README.md`：README 就在仓库根，
     // 说清楚这件事比省一次引用更值 —— 也免得哪天 :plugin 被挪到别的层级。
     systemProperty("patchbay.readmeFile", rootProject.file("README.md").absolutePath)
+    // 「读源码的守卫」要扫 :plugin 自己的 main 源码（`McpFailureVerdictTest`）。
+    // 源码本来就是编译输入，所以这里只需要把**位置**告诉测试 JVM，不用再声明 inputs。
+    systemProperty("patchbay.sourceRoot", rootProject.projectDir.absolutePath)
 
     // **把 schema 声明成测试任务的输入。**
     //
