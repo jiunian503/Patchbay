@@ -230,9 +230,7 @@ object PluginHost {
 
         // 下面这处「校验已经排除了」的情况仍然要挡：PluginHost 是 public API，
         // 不能假设调用方一定先跑过 ManifestParser（和 declarative 分支同一个理由）
-        if (plugin.manifest.tools.isEmpty()) {
-            return fail(plugin, "$.tools", "一个插件至少要暴露一个工具，否则装进来没有任何作用。")
-        }
+        if (plugin.manifest.tools.isEmpty()) return noTools(plugin)
 
         // 源码从**清单自己**里取（`files`），不问引擎要。理由见 PluginManifest.files：
         // 一个插件就是一份文档，装/升级/卸载都是对同一份文本的一次操作。
@@ -392,6 +390,11 @@ object PluginHost {
         if (entry == null) {
             return fail(plugin, "$.entry.declarative", "runtime 是 declarative 但没有 declarative 段，无法装配。")
         }
+
+        // 上面那句注释说的「校验已经排除了的情况」里的最后一条：tools 为空。
+        // 少了它，绕过校验的调用点会拿到「0 个工具 + 0 条问题」——
+        // 正是本文件反复要避免的那种没法排查的状态
+        if (manifest.tools.isEmpty()) return noTools(plugin)
 
         val baseUrl = entry.baseUrl.toHttpUrlOrNull()
             ?: return fail(plugin, "$.entry.declarative.baseUrl", "「${entry.baseUrl}」不是合法地址，无法装配。")
@@ -757,6 +760,23 @@ object PluginHost {
     }
 
     private fun problem(path: String, message: String): ManifestProblem = ManifestProblem(path, message)
+
+    /**
+     * 「一个工具都没有」在装配期必须**说出来**，不能返回一个空工具集。
+     *
+     * 这是 [mcp] 的 KDoc 点名的「最难查的一种状态」：用户会怀疑是安装没成功。
+     * 同一个道理仓里写过三遍（[mcp]、native 分支、[script]），而**声明式分支漏了** ——
+     * 它和脚本分支一样，工具来源是清单里写死的 `tools`，空就是空的。
+     *
+     * MCP 是**唯一豁免**：它的工具清单由对端在装配时动态给出，作者在清单里写不出来
+     * （`ManifestParser.checkTools` 里那条豁免的理由）。
+     *
+     * 校验层会拦（那句诊断是 Error 级，装不进来），但 PluginHost 是 public API，
+     * 不能假设调用方一定先跑过 ManifestParser。两个分支**共用这一处实现**，
+     * 是为了「同一件事只有一句话」—— 各写一遍的话，改一处漏一处不会有东西变红。
+     */
+    private fun noTools(plugin: InstalledPlugin): PluginTools =
+        fail(plugin, "$.tools", "一个插件至少要暴露一个工具，否则装进来没有任何作用。")
 
     private fun fail(plugin: InstalledPlugin, path: String, message: String): PluginTools = PluginTools(
         plugin = plugin,

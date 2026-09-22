@@ -1,5 +1,6 @@
 package com.aichat.plugin.host
 
+import com.aichat.plugin.FakeScriptRuntime
 import com.aichat.plugin.Manifests
 import com.aichat.plugin.manifest.AuthSpec
 import com.aichat.plugin.manifest.AuthType
@@ -17,12 +18,13 @@ import org.junit.Test
  *
  * ## 这里守的核心性质是「失败不能是静默的」
  *
- * 装配失败的三种形态都很容易写成「返回空列表」：
- * baseUrl 解析不了、认证配置不完整、请求头缺配置项。
+ * 装配失败的**四种**形态都很容易写成「返回空列表」：
+ * baseUrl 解析不了、认证配置不完整、请求头缺配置项、**一个工具都没有**。
  * 每一种都会让用户看到「装了个插件，什么也没发生」—— 那是没法排查的状态。
  *
  * 所以每条失败路径都有一个用例断言「返回了 0 个工具，**并且**给出了一条
- * 说清原因的问题」。
+ * 说清原因的问题」。最后一条同时管声明式和脚本两个分支 —— 它们共用
+ * `PluginHost.noTools`，所以还多一条用例钉「两个分支说的是同一句话」。
  */
 class PluginHostTest {
 
@@ -114,6 +116,54 @@ class PluginHostTest {
     }
 
     // ---------------------------------------------------------------- 失败路径
+
+    /**
+     * 「一个工具都没有」是装配期最容易变成静默空列表的一种。
+     *
+     * 校验层会拦（`ManifestParser.checkTools` 那句诊断是 Error 级，装不进来），
+     * 但 PluginHost 是 public API，不能假设调用方一定先跑过校验 ——
+     * 和下面三条同一个理由。
+     */
+    @Test
+    fun `声明式插件一个工具都没有时报出来而不是给空工具集`() {
+        val set = PluginHost.tools(
+            Manifests.raw(Manifests.declarativeObject(tools = emptyList())),
+            client,
+        )
+
+        assertTrue(set.tools.isEmpty())
+        assertEquals(1, set.problems.size)
+        assertEquals("$.tools", set.problems.single().path)
+        assertTrue(
+            set.problems.single().message,
+            set.problems.single().message.contains("至少要暴露一个工具"),
+        )
+    }
+
+    /**
+     * ⭐ 声明式和脚本两个分支对「一个工具都没有」必须说**同一句话**。
+     *
+     * 这句话原来在两个分支里各写了一遍（声明式那处甚至**没有**）—— 改一处漏一处
+     * 不会有任何东西变红，而两句话是给同一件事用的（连路径 `$.tools` 都一样）。
+     * 现在它们共用 `PluginHost.noTools`，这条用例把「共用」这件事钉住。
+     */
+    @Test
+    fun `声明式和脚本两个分支对空工具集说同一句话`() {
+        val declarative = PluginHost.tools(
+            Manifests.raw(Manifests.declarativeObject(tools = emptyList())),
+            client,
+        )
+        val script = PluginHost.tools(
+            Manifests.raw(Manifests.scriptObject(tools = emptyList())),
+            client,
+            FakeScriptRuntime(),
+        )
+
+        assertEquals("声明式分支该给出一条问题", 1, declarative.problems.size)
+        assertEquals("脚本分支该给出一条问题", 1, script.problems.size)
+        assertEquals(declarative.problems.single().path, script.problems.single().path)
+        assertEquals(declarative.problems.single().message, script.problems.single().message)
+    }
 
     @Test
     fun `baseUrl 解析不了时报出问题而不是空列表`() {
