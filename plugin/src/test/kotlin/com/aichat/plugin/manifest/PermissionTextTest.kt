@@ -108,4 +108,37 @@ class PermissionTextTest {
             PluginPermissions(device = listOf(DeviceCapability.Contacts)).isHighRisk,
         )
     }
+
+    /**
+     * 「这次更新扩权了吗」这张真值表 —— 八种组合逐一钉死。
+     *
+     * 这里曾经只有「原来必须是 `none`」一条判据（写在 `PluginRepository.permissionDiff` 里），
+     * 于是 `read → readwrite` 这种**真的**扩权被静默漏掉：只读插件写工作区会被
+     * `PluginWorkspace` 拒掉（「只声明了 filesystem: "read"（只读），不能写工作区」），
+     * 升级之后就写得进去了。漏报的后果是用户确认了一次「看起来没变」的更新，
+     * 插件却多了一项能力。
+     *
+     * 反过来，收紧**不能**报 —— `permissionDiff` 的 KDoc：「每次更新都弹一堆
+     * 『权限变了』会让人养成无脑点确认的习惯，真正危险的那次也就跟着被点掉了」。
+     */
+    @Test
+    fun `文件系统权限的扩权真值表`() {
+        val none = FilesystemScope.None
+        val read = FilesystemScope.Read
+        val readWrite = FilesystemScope.ReadWrite
+
+        // 三条扩权
+        assertTrue("none → read 是扩权", read.isExpansionOver(none))
+        assertTrue("none → readwrite 是扩权", readWrite.isExpansionOver(none))
+        assertTrue("read → readwrite 是扩权", readWrite.isExpansionOver(read))
+
+        // 三条收紧
+        assertFalse("readwrite → read 是收紧", read.isExpansionOver(readWrite))
+        assertFalse("read → none 是收紧", none.isExpansionOver(read))
+        assertFalse("readwrite → none 是收紧", none.isExpansionOver(readWrite))
+
+        // 原地不动
+        assertFalse("read → read 不算变化", read.isExpansionOver(read))
+        assertFalse("none → none 不算变化", none.isExpansionOver(none))
+    }
 }

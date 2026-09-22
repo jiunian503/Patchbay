@@ -613,6 +613,51 @@ class PluginRepositoryTest {
         }
     }
 
+    /**
+     * `read → readwrite` 也是扩权，必须报出来。
+     *
+     * 这条曾经被静默漏掉：判据写的是「原来必须是 `None`」，于是只读插件升级成读写时，
+     * 升级确认页上一个字都不提 —— 用户确认了一次「看起来没变」的更新，插件却多了一项能力。
+     * 而那条能力是真的：只读插件写工作区会被 `PluginWorkspace` 拒掉
+     * （「只声明了 filesystem: "read"（只读），不能写工作区」）。
+     */
+    @Test
+    fun `只读升级成读写也要报`() = runTest {
+        val env = Env()
+        env.repo.install(Manifests.declarative(extraPermissions = ",\"filesystem\":\"read\""))
+
+        val result = env.repo.install(
+            Manifests.declarative(
+                version = "1.1.0",
+                extraPermissions = ",\"filesystem\":\"readwrite\"",
+            ),
+        )
+
+        val text = result.permissionChanges.joinToString("\n")
+        assertTrue("只读升级成读写是扩权，必须说出来：\n$text", text.contains("新增文件系统权限：读写"))
+    }
+
+    /**
+     * 反过来是**收紧**，不报。
+     *
+     * 见 `permissionDiff` 的 KDoc：「每次更新都弹一堆『权限变了』会让人养成无脑点确认的
+     * 习惯，真正危险的那次也就跟着被点掉了」。
+     */
+    @Test
+    fun `读写收紧成只读不报`() = runTest {
+        val env = Env()
+        env.repo.install(Manifests.declarative(extraPermissions = ",\"filesystem\":\"readwrite\""))
+
+        val result = env.repo.install(
+            Manifests.declarative(
+                version = "1.1.0",
+                extraPermissions = ",\"filesystem\":\"read\"",
+            ),
+        )
+
+        assertTrue("收紧权限不该打扰用户：${result.permissionChanges}", result.permissionChanges.isEmpty())
+    }
+
     /** 同上，这条管的是「运行形态变了」那一行（原来是 `declarative → native`）。 */
     @Test
     fun `运行形态变了也说中文`() = runTest {

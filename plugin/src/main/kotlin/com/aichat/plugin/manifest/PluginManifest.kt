@@ -196,6 +196,26 @@ val FilesystemScope.displayName: String
         FilesystemScope.ReadWrite -> "读写（限插件工作区）"
     }
 
+/**
+ * 从 [other] 变成这个值时，**能力是不是变多了**。
+ *
+ * `FilesystemScope` 是几项权限里唯一有强弱关系的（`none` ⊂ `read` ⊂ `readwrite`），
+ * 所以「这次更新扩权了吗」只有它需要比大小 —— 其余几项要么是布尔（`shell` /
+ * `linuxEnv`），要么是集合（`network` / `device`），判「新增了什么」就够了。
+ *
+ * 刻意**不比较 `ordinal`**：枚举的书写顺序是排版。将来谁把 `ReadWrite` 挪到
+ * `Read` 前面，用 `ordinal` 写出来的判据会**静默**反过来 —— 收紧被报成扩权，
+ * 而那正是这条判据要避免的噪音（见 `PluginRepository.permissionDiff` 的 KDoc）。
+ *
+ * 三个值写全、不留 `else`：将来加第四个值时编译器会报，
+ * 比一个恒为 `false` 的 `else` 安全。
+ */
+fun FilesystemScope.isExpansionOver(other: FilesystemScope): Boolean = when (this) {
+    FilesystemScope.None -> false
+    FilesystemScope.Read -> other == FilesystemScope.None
+    FilesystemScope.ReadWrite -> other != FilesystemScope.ReadWrite
+}
+
 val PluginRuntimeKind.displayName: String
     get() = when (this) {
         PluginRuntimeKind.Declarative -> "声明式（纯 HTTP 配置）"

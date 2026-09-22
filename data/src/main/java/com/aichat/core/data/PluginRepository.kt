@@ -2,13 +2,13 @@ package com.aichat.core.data
 
 import com.aichat.domain.secret.SecretStore
 import com.aichat.plugin.host.InstalledPlugin
-import com.aichat.plugin.manifest.FilesystemScope
 import com.aichat.plugin.manifest.ManifestCheck
 import com.aichat.plugin.manifest.ManifestParser
 import com.aichat.plugin.manifest.ManifestProblem
 import com.aichat.plugin.manifest.PluginManifest
 import com.aichat.plugin.manifest.PluginRuntimeKind
 import com.aichat.plugin.manifest.displayName
+import com.aichat.plugin.manifest.isExpansionOver
 import com.aichat.plugin.runtime.PluginSettings
 import com.aichat.plugin.runtime.mcp.McpCacheCodec
 import com.aichat.plugin.runtime.mcp.McpToolCache
@@ -580,7 +580,19 @@ class PluginRepository(
         // 而这段文字会出现在升级确认页上给用户看（`UpgradeWarning`）。
         // `displayName` 的 KDoc 里写得很清楚：刻意不复用 `enum.name`，
         // 「`Accessibility` 直接显示出来是英文」。
-        if (before.filesystem == FilesystemScope.None && after.filesystem != FilesystemScope.None) {
+        // ⚠️ 文件系统权限要报**所有扩张**：`none → read`、`none → readwrite`、
+        // 以及 `read → readwrite`。
+        //
+        // 这里原来写的是「原来必须是 `None`」，于是 `read → readwrite` 被静默漏掉。
+        // 而那条是真的能力增加：只读插件写工作区会被 `PluginWorkspace` 拒掉
+        // （「只声明了 filesystem: "read"（只读），不能写工作区」），升级之后就写得进去了。
+        // 漏报的后果是用户确认了一次「看起来没变」的更新，插件却多了一项能力。
+        //
+        // 反过来，收紧（`readwrite → read`）**不能**报 —— 报了会让人养成无脑点
+        // 确认的习惯，真正危险的那次也跟着被点掉。所以判据是
+        // `isExpansionOver`（强弱关系写在枚举那边，且不比较 `ordinal`），
+        // 而不是「值变了就报」。
+        if (after.filesystem.isExpansionOver(before.filesystem)) {
             changes += "新增文件系统权限：${after.filesystem.displayName}"
         }
         val newDevice = after.device - before.device.toSet()
